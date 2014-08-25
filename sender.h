@@ -17,7 +17,7 @@ struct packet * sender_send_icmp(struct sender *sender,
 
 struct packet * sender_send_icmp_fixrev(struct sender *sender,
 		uint32_t dst, uint8_t ttl, uint16_t ipid,
-		uint16_t icmpsum, uint16_t icmpseq, uint16_t rev_icmpsum,
+		uint16_t icmpsum, uint16_t rev_icmpsum, uint16_t icmpseq,
 		size_t padding);
 
 #endif

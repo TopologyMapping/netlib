@@ -81,6 +81,7 @@ struct packet * sender_send_icmp(struct sender *s, /* {{{ */
 			// (uint8_t *)(&payload), sizeof(uint16_t),
 			(uint8_t *)pload, cnt * sizeof(uint16_t),
 			s->ln, s->icmptag);
+	free(pload);
 	if(s->icmptag == -1) goto out;
 
 	size_t sz = LIBNET_IPV4_H+LIBNET_ICMPV4_ECHO_H + cnt*sizeof(uint16_t);
@@ -105,7 +106,7 @@ struct packet * sender_send_icmp(struct sender *s, /* {{{ */
 
 struct packet * sender_send_icmp_fixrev(struct sender *s, /* {{{ */
 		uint32_t dst, uint8_t ttl, uint16_t ipid,
-		uint16_t icmpsum, uint16_t icmpseq, uint16_t rev_icmpsum,
+		uint16_t icmpsum, uint16_t rev_icmpsum, uint16_t icmpseq,
 		size_t padding)
 {
 	struct libnet_icmpv4_hdr outer;
@@ -146,7 +147,7 @@ struct packet * sender_send_icmp_fixrev(struct sender *s, /* {{{ */
 	iicmp.icmp_id = LIBNET_CKSUM_CARRY(chksum);
 
 	// logd(LOG_DEBUG, "IP chksum: 0x%04x\n", ntohs(iip.ip_sum));
-	// logd(LOG_DEBUG, "icmp_id: 0x%04x\n", ntohs(iicmp.icmp_id));
+	// logd(LOG_DEBUG, "ICMP chksum: 0x%04x\n", ntohs(iicmp.icmp_id));
 
 	uint16_t icmpid = ntohs(iicmp.icmp_id);
 	return sender_send_icmp(s, dst, ttl, ipid, icmpsum, icmpid, icmpseq,
@@ -180,5 +181,7 @@ static struct packet * sender_make_packet(struct sender *s)/*{{{*/
 	if(!buf) logea(__FILE__, __LINE__, NULL);
 	memcpy(buf, ipbuf, iplen);
 	memcpy(buf+iplen, icbuf, iclen);
-	return packet_create_ip(buf, iplen + iclen);
+	struct packet *pkt = packet_create_ip(buf, iplen + iclen);
+	free(buf);
+	return pkt;
 }/*}}}*/

@@ -8,18 +8,27 @@
 
 #include <inttypes.h>
 
-struct confirm_query {
+struct confirm_query {/*{{{*/
 	/* query fields. must be filled by the caller: */
 	uint32_t dst;
 	uint8_t ttl;
-	uint8_t flowid;
-	uint8_t ntries;
+	uint16_t ipid;
+	/* =ipid is not used to identify probes (in =confirm_query_cmp) as it
+	 * is not returned in ECHO_REPLY packets. */
+	uint16_t icmpid; /* icmpid == 0 fixes reverse flow id =revflow */
+	/* uint16_t icmpseq used to identify probes */
+	uint8_t flowid; /* forward ICMP checksum */
+	size_t padding; /* amount of zeroed bytes to append in the probe */
+
+	uint8_t revflow; /* reverse flow ID, uses ipid */
+
+	int ntries;
 	void (*cb)(struct confirm_query *query);
 	void *data;
 
 	/* answer fields. ip unset and trynum == ntries+1 if no answer: */
 	uint32_t ip;
-	uint8_t trynum;
+	int trynum;
 
 	struct timespec probetime;
 	struct timespec timeout;
@@ -27,19 +36,22 @@ struct confirm_query {
 	struct timespec lastpkt;
 	struct timespec answertime;
 	void *event;
-};
+};/*}}}*/
 
 struct confirm;
 typedef void confirm_query_cb(struct confirm_query *query);
 
 /* will open a libnet sender on the given device and wait for queries. */
-struct confirm * confirm_create(const char *device, uint16_t icmpid);
+struct confirm * confirm_create(const char *device);
 void confirm_destroy(struct confirm *confirm);
 
 void confirm_query(struct confirm *confirm, struct confirm_query *query);
 
 struct confirm_query * confirm_query_create(uint32_t dst, uint8_t ttl,
-		uint8_t flowid);
+		uint16_t ipid, uint16_t icmpid,
+		uint8_t flowid, uint8_t revflow,
+		confirm_query_cb cb);
+
 void confirm_query_destroy(struct confirm_query *query);
 
 #endif

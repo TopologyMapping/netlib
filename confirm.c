@@ -23,6 +23,8 @@
 #define EVENT_TIMEOUT 3
 #define EVENT_ANSWER 4
 
+#define CONFIRM_MAX_FLOWID 0x7F
+
 static uint16_t id2checksum[] = {
 47485, 59641, 59636, 59814,
 23611, 24011, 24763, 63590,
@@ -32,6 +34,7 @@ static uint16_t id2checksum[] = {
 61823, 33612, 43377, 62109,
 62647, 21362, 40351, 30905,
 39930, 65105, 64025, 10451,
+
 53500, 40931, 56155, 38023,
 44366, 25553, 50878, 39562,
 51740, 26910, 30285, 23196,
@@ -40,6 +43,7 @@ static uint16_t id2checksum[] = {
 39094, 38088, 45801, 33501,
 43723, 30103, 36960, 60135,
 17854, 64411, 20306, 50570,
+
 27569, 47643, 60544, 13979,
 13830, 22346, 41505, 47566,
 13688, 34730, 17193, 11123,
@@ -48,14 +52,21 @@ static uint16_t id2checksum[] = {
 12635, 22307, 13967, 13919,
 59912, 24539, 51469, 48554,
 34217, 55905, 62396, 38044,
-58741, 11926, 60163, 56968
+
+58741, 11926, 60163, 56968,
+15225, 11219, 47322, 62507,
+36788, 22750, 65250, 10131,
+54070, 52099, 16803, 38011,
+44963, 23744, 45228, 2777,
+16336, 42758, 41302, 21750,
+38419, 27767, 9512, 6808,
+1976, 29100, 32515, 46886
 };
 
 /*****************************************************************************
  * declarations
  ****************************************************************************/
 struct confirm {
-	uint16_t icmpid;
 	pthread_t thread;
 	pthread_mutex_t evlist_mut;
 	struct dlist *evlist;
@@ -74,7 +85,8 @@ struct event {
 static void * confirm_thread(void *vconfirm);
 static int confirm_recv(const struct packet *packet, void *confirm);
 static int confirm_recv_parse(const struct packet *pkt, uint32_t *dst,
-	       uint8_t *ttl, uint8_t *flowid, uint32_t *ip, uint16_t icmpid);
+	       uint8_t *ttl, uint16_t *icmpid,
+	       uint8_t *flowid, uint8_t *revflow, uint32_t *ip);
 static void confirm_sendevent(struct confirm *confirm, struct event *ev);
 
 static void confirm_mutex_unlock(void *vmutex);
@@ -99,19 +111,20 @@ static void event_run_answer(struct confirm *conf, struct event *ev);
 static void query_destroy_pavl(void *query, void *dummy);
 static int query_cmp(const void *a, const void *b, void *dummy);
 
-static uint16_t confirm_data_pack(uint8_t ttl, uint8_t flowid);
-static void confirm_data_unpack(uint16_t data, uint8_t *ttl, uint8_t *flowid);
+static uint16_t confirm_data_pack(uint8_t ttl, uint8_t fwflow, int fixrev);
+static void confirm_data_unpack(uint16_t data, uint8_t *ttl, uint8_t *fwflow,
+				int *fixrev);
+uint8_t confirm_inverse_flowid(uint16_t chksum);
 
 /*****************************************************************************
  * public functions
  ****************************************************************************/
-struct confirm * confirm_create(const char *device, uint16_t icmpid) /* {{{ */
+struct confirm * confirm_create(const char *device) /* {{{ */
 {
 	struct confirm *confirm;
 
 	confirm = malloc(sizeof(struct confirm));
 	if(!confirm) logea(__FILE__, __LINE__, NULL);
-	confirm->icmpid = icmpid;
 
 	confirm->events = pavl_create(event_cmp, NULL, NULL);
 	if(!confirm->events) goto out;
@@ -255,13 +268,14 @@ static int confirm_recv(const struct packet *pkt, void *vconfirm) /* {{{ */
 	struct confirm_query *query;
 	struct event *event;
 	uint32_t dst, ip;
-	uint8_t ttl, flowid;
+	uint16_t icmpid;
+	uint8_t ttl, flowid, revflow;
 
-	if(!confirm_recv_parse(pkt, &dst, &ttl, &flowid, &ip, conf->icmpid)) {
+	if(!confirm_recv_parse(pkt, &dst, &ttl, &icmpid, &flowid, &revflow, &ip)) {
 		return 1;
 	}
 
-	query = confirm_query_create(dst, ttl, flowid);
+	query = confirm_query_create(dst, ttl, 0, icmpid, flowid, revflow, NULL);
 	query->ip = ip;
 	query->answertime = pkt->tstamp;
 	event = event_create(EVENT_ANSWER, query);
@@ -271,34 +285,52 @@ static int confirm_recv(const struct packet *pkt, void *vconfirm) /* {{{ */
 } /* }}} */
 
 static int confirm_recv_parse(const struct packet *pkt, uint32_t *dst, /*{{{*/
-	       uint8_t *ttl, uint8_t *flowid, uint32_t *ip, uint16_t icmpid)
+	       uint8_t *ttl, uint16_t *icmpid,
+	       uint8_t *flowid, uint8_t *revflow, uint32_t *ip)
 {
 	if(pkt->ip->ip_p != IPPROTO_ICMP) return 0;
-	*ip = pkt->ip->ip_src.s_addr;
 
 	if(pkt->icmp->icmp_type != ICMP_ECHOREPLY &&
 			pkt->icmp->icmp_type != ICMP_TIMXCEED) {
 		return 0;
 	}
 
+	*ip = pkt->ip->ip_src.s_addr;
 	uint16_t data;
+	uint16_t revsum;
 	if(pkt->icmp->icmp_type == ICMP_ECHOREPLY) {
 		*dst = pkt->ip->ip_src.s_addr;
-		if(ntohs(pkt->icmp->icmp_id) != icmpid) return 0;
+		*icmpid = ntohs(pkt->icmp->icmp_id);
 		data = ntohs(pkt->icmp->icmp_seq);
 	} else if(pkt->icmp->icmp_type == ICMP_TIMXCEED) {
+		if(pkt->icmp->icmp_code != ICMP_TIMXCEED_INTRANS) return 0;
 		struct libnet_ipv4_hdr *rip;
 		struct libnet_icmpv4_hdr *ricmp;
 		rip = (struct libnet_ipv4_hdr *)(pkt->payload);
 		ricmp = (struct libnet_icmpv4_hdr *)(pkt->payload + rip->ip_hl*4);
 		*dst = rip->ip_dst.s_addr;
-		if(pkt->icmp->icmp_code != ICMP_TIMXCEED_INTRANS) return 0;
-		if(ntohs(ricmp->icmp_id) != icmpid) return 0;
+		*icmpid = ntohs(ricmp->icmp_id);
+		revsum = ntohs(pkt->icmp->icmp_sum);
 		data = ntohs(ricmp->icmp_seq);
 	}
-	confirm_data_unpack(data, ttl, flowid);
+	int fixrev;
+	confirm_data_unpack(data, ttl, flowid, &fixrev);
+	if(fixrev) {
+		*revflow = confirm_inverse_flowid(revsum);
+		*icmpid = 0;
+	} else {
+		*revflow = 0;
+	}
 	return 1;
 } /* }}} */
+
+uint8_t confirm_inverse_flowid(uint16_t chksum) {/*{{{*/
+	int i;
+	for(i = 0; i < CONFIRM_MAX_FLOWID; i++) {
+		if(id2checksum[i] == chksum) return (uint8_t)i;
+	}
+	return 0xFF;
+}/*}}}*/
 
 static void confirm_mutex_unlock(void *vmutex) /* {{{ */
 {
@@ -436,16 +468,31 @@ static void event_run_query(struct confirm *conf, struct event *ev)
 
 static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 {
-	uint16_t data;
 	struct confirm_query *query = ev->query;
-	uint16_t checksum = id2checksum[query->flowid];
 	assert(ev->type == EVENT_SENDPACKET);
+	uint16_t data;
 
-	data = confirm_data_pack(query->ttl, query->flowid);
+	/* TODO This function should store trynum in the probe so we know when
+	 * each probe is answered and compute latencies.  But take care as we
+	 * need to keep flowids fixed. */
 
-	sender_send_icmp(conf->sender, query->dst, query->ttl, 1,
-		checksum, conf->icmpid, data, 0);
+	struct packet *pkt;
+	if(query->icmpid) {
+		data = confirm_data_pack(query->ttl, query->flowid, 0);
+		pkt = sender_send_icmp(conf->sender, query->dst,
+				query->ttl,
+				query->ipid, id2checksum[query->flowid],
+				query->icmpid, data, query->padding);
+	} else {
+		data = confirm_data_pack(query->ttl, query->flowid, 1);
+		uint16_t revsum = id2checksum[query->revflow];
+		pkt = sender_send_icmp_fixrev(conf->sender, query->dst,
+				query->ttl,
+				query->ipid, id2checksum[query->flowid],
+				revsum, data, query->padding);
+	}
 
+	packet_destroy(pkt);
 	query->trynum++;
 	query->lastpkt = ev->time;
 	event_run_schednext(conf, query);
@@ -470,7 +517,9 @@ static int event_run_answer_testtimeout(const struct confirm_query *query,
 	if(timespec_cmp(packet, timeout) <= 0) return 1;
 	timespec_sub(packet, timeout, &aux);
 	logd(LOG_INFO, "%s packet missed timeout by ", __func__);
-	timespec_logd(60, aux);
+	char *ts = timespec_str(aux);
+	logd(LOG_INFO, "tstamp %s\n", ts);
+	free(ts);
 	return 0;
 }
 
@@ -498,8 +547,10 @@ static void event_run_answer(struct confirm *conf, struct event *ev)
 
 	out_spurious:
 	inet_ntop(AF_INET, &(ev->query->dst), dump, INET_ADDRSTRLEN);
-	logd(5, "%s no query for dst=%s ttl=%d flow=%d\n", __func__,
-			dump, ev->query->ttl, ev->query->flowid);
+	logd(5, "%s no query for dst=%s ttl=%d flowid=%d revflow=%d\n",
+			__func__, dump,
+			ev->query->ttl, ev->query->flowid,
+			ev->query->revflow);
 	out:
 	confirm_query_destroy(ev->query);
 } /* }}} */
@@ -508,7 +559,10 @@ static void event_run_answer(struct confirm *conf, struct event *ev)
  * query functions {{{
  ****************************************************************************/
 struct confirm_query *
-confirm_query_create(uint32_t dst, uint8_t ttl, uint8_t flowid)
+confirm_query_create(uint32_t dst, uint8_t ttl,
+		uint16_t ipid, uint16_t icmpid,
+		uint8_t flowid, uint8_t revflow,
+		confirm_query_cb cb)
 {
 	struct confirm_query *query;
 
@@ -518,10 +572,17 @@ confirm_query_create(uint32_t dst, uint8_t ttl, uint8_t flowid)
 	query->ntries = 1;
 	query->dst = dst;
 	query->ttl = ttl;
-	query->flowid = flowid;
+	query->ipid = ipid;
+	query->icmpid = icmpid;
+	if(query->flowid > CONFIRM_MAX_FLOWID || query->revflow > CONFIRM_MAX_FLOWID) {
+		logd(LOG_WARN, "%s,%d: max flow id is 127\n", __FILE__, __LINE__);
+	}
+	query->flowid = flowid & CONFIRM_MAX_FLOWID;
+	query->revflow = (icmpid) ? 0 : revflow & CONFIRM_MAX_FLOWID;
 	query->ip = UINT_MAX;
-	query->probetime.tv_sec = 1;
-	query->timeout.tv_sec = 3;
+	query->cb = cb;
+	query->probetime.tv_sec = 2;
+	query->timeout.tv_sec = 5;
 	return query;
 }
 
@@ -543,21 +604,29 @@ static int query_cmp(const void *a, const void *b, void *dummy)
 	if(q1->dst > q2->dst) { return +1; }
 	if(q1->ttl < q2->ttl) { return -1; }
 	if(q1->ttl > q2->ttl) { return +1; }
+	if(q1->icmpid < q2->icmpid) { return -1; }
+	if(q1->icmpid > q2->icmpid) { return +1; }
 	if(q1->flowid < q2->flowid) { return -1; }
 	if(q1->flowid > q2->flowid) { return +1; }
+	if(q1->revflow < q2->revflow) { return -1; }
+	if(q1->revflow > q2->revflow) { return +1; }
 	return 0;
 } /* }}} */
 
 /*****************************************************************************
  * data functions {{{
  ****************************************************************************/
-static uint16_t confirm_data_pack(uint8_t ttl, uint8_t flowid)
+#define DATA_FLAG_REVFLOW 0x8000
+static uint16_t confirm_data_pack(uint8_t ttl, uint8_t fwflow, int fixrev)
 {
-	uint16_t retval = (ttl << 8) + flowid;
+	uint16_t retval = (fwflow << 8) + ttl;
+	if(fixrev) retval |= DATA_FLAG_REVFLOW;
 	return retval;
 }
-static void confirm_data_unpack(uint16_t data, uint8_t *ttl, uint8_t *flowid)
+static void confirm_data_unpack(uint16_t data, uint8_t *ttl, uint8_t *fwflow,
+		int *fixrev)
 {
-	*ttl = (uint8_t)((data & 0xFF00) >> 8);
-	*flowid = (uint8_t)(data & 0xFF);
+	*ttl = (uint8_t)(data & 0x00FF);
+	*fwflow = (uint8_t)((data >> 8) & CONFIRM_MAX_FLOWID);
+	*fixrev = data & DATA_FLAG_REVFLOW;
 } /* }}} */
