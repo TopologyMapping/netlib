@@ -539,8 +539,9 @@ static void event_run_answer(struct confirm *conf, struct event *ev)
 	}
 
 	query->ip = ev->query->ip;
-	query->response = ev->query->response;
 	query->answertime = ev->query->answertime;
+	query->response = ev->query->response;
+	ev->query->response = NULL; /* avoid double free */
 	confirm_query_destroy(ev->query);
 	pavl_assert_delete(conf->queries, query);
 	pavl_assert_delete(conf->events, query->event);
@@ -575,8 +576,8 @@ confirm_query_create(uint32_t dst, uint8_t ttl,
 	query->ttl = ttl;
 	query->ipid = ipid;
 	query->icmpid = icmpid;
-	if(query->flowid > CONFIRM_MAX_FLOWID || query->revflow > CONFIRM_MAX_FLOWID) {
-		logd(LOG_WARN, "%s,%d: max flow id is 127\n", __FILE__, __LINE__);
+	if(flowid > CONFIRM_MAX_FLOWID || revflow > CONFIRM_MAX_FLOWID) {
+		logd(LOG_WARN, "%s,%d: flowid > 127!\n", __FILE__, __LINE__);
 	}
 	query->flowid = flowid & CONFIRM_MAX_FLOWID;
 	query->padding = 0;
