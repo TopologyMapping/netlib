@@ -628,8 +628,11 @@ static int query_cmp(const void *a, const void *b, void *dummy)
 	if(q1->icmpid > q2->icmpid) { return +1; }
 	if(q1->flowid < q2->flowid) { return -1; }
 	if(q1->flowid > q2->flowid) { return +1; }
-	if(q1->revflow < q2->revflow) { return -1; }
-	if(q1->revflow > q2->revflow) { return +1; }
+	/* removed this because setting the reverse flow ID does not work
+	 * for 100% of routers (e.g., those that copy more than 8 bytes of
+	 * the original IP payload */
+	// if(q1->revflow < q2->revflow) { return -1; }
+	// if(q1->revflow > q2->revflow) { return +1; }
 	return 0;
 } /* }}} */
 
