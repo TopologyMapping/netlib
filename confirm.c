@@ -277,6 +277,7 @@ static int confirm_recv(const struct packet *pkt, void *vconfirm) /* {{{ */
 
 	query = confirm_query_create(dst, ttl, 0, icmpid, flowid, revflow, NULL);
 	query->ip = ip;
+	query->response = packet_clone(pkt);
 	query->answertime = pkt->tstamp;
 	event = event_create(EVENT_ANSWER, query);
 
@@ -492,7 +493,8 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 				revsum, data, query->padding);
 	}
 
-	packet_destroy(pkt);
+	if(query->probe == NULL) { query->probe = pkt; }
+	else { packet_destroy(pkt); }
 	query->trynum++;
 	query->lastpkt = ev->time;
 	event_run_schednext(conf, query);
@@ -537,6 +539,7 @@ static void event_run_answer(struct confirm *conf, struct event *ev)
 	}
 
 	query->ip = ev->query->ip;
+	query->response = ev->query->response;
 	query->answertime = ev->query->answertime;
 	confirm_query_destroy(ev->query);
 	pavl_assert_delete(conf->queries, query);
@@ -568,8 +571,6 @@ confirm_query_create(uint32_t dst, uint8_t ttl,
 
 	query = malloc(sizeof(struct confirm_query));
 	if(!query) logea(__FILE__, __LINE__, NULL);
-	memset(query, 0, sizeof(struct confirm_query));
-	query->ntries = 1;
 	query->dst = dst;
 	query->ttl = ttl;
 	query->ipid = ipid;
@@ -578,16 +579,37 @@ confirm_query_create(uint32_t dst, uint8_t ttl,
 		logd(LOG_WARN, "%s,%d: max flow id is 127\n", __FILE__, __LINE__);
 	}
 	query->flowid = flowid & CONFIRM_MAX_FLOWID;
+	query->padding = 0;
 	query->revflow = (icmpid) ? 0 : revflow & CONFIRM_MAX_FLOWID;
-	query->ip = UINT_MAX;
+
+	query->ntries = 1;
 	query->cb = cb;
+	query->data = NULL;
+
+	query->ip = UINT_MAX;
+	query->trynum = 0;
+
 	query->probetime.tv_sec = 2;
+	query->probetime.tv_nsec = 0;
 	query->timeout.tv_sec = 5;
+	query->timeout.tv_nsec = 0;
+	query->start.tv_sec = 0;
+	query->start.tv_nsec = 0;
+	query->lastpkt.tv_sec = 0;
+	query->lastpkt.tv_nsec = 0;
+	query->answertime.tv_sec = 0;
+	query->answertime.tv_nsec = 0;
+	query->event = NULL;
+
+	query->probe = NULL;
+	query->response = NULL;
 	return query;
 }
 
 void confirm_query_destroy(struct confirm_query *query)
 {
+	if(query->probe) packet_destroy(query->probe);
+	if(query->response) packet_destroy(query->response);
 	free(query);
 }
 
