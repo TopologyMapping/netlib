@@ -7,6 +7,7 @@
  * have timed out, a callback function will be called informing the results. */
 
 #include <inttypes.h>
+#include "packet.h"
 
 struct confirm_query {/*{{{*/
 	/* query fields. must be filled by the caller: */
@@ -36,6 +37,9 @@ struct confirm_query {/*{{{*/
 	struct timespec lastpkt;
 	struct timespec answertime;
 	void *event;
+
+	struct packet *probe;
+	struct packet *response;
 };/*}}}*/
 
 struct confirm;
