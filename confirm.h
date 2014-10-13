@@ -12,6 +12,7 @@
 struct confirm_query {/*{{{*/
 	/* query fields. must be filled by the caller: */
 	uint32_t dst;
+	struct libnet_in6_addr dst_ipv6;
 	uint8_t ttl;
 	uint16_t ipid;
 	/* =ipid is not used to identify probes (in =confirm_query_cmp) as it
@@ -30,6 +31,8 @@ struct confirm_query {/*{{{*/
 	/* answer fields. ip unset and trynum == ntries+1 if no answer: */
 	uint32_t ip;
 	int trynum;
+    struct libnet_in6_addr ipv6;
+    uint8_t ipType; // ipType = 4 to IPv4; ipType = 6 to IPv6;
 
 	struct timespec probetime;
 	struct timespec timeout;
@@ -46,7 +49,7 @@ struct confirm;
 typedef void confirm_query_cb(struct confirm_query *query);
 
 /* will open a libnet sender on the given device and wait for queries. */
-struct confirm * confirm_create(const char *device);
+struct confirm * confirm_create(const char *device, int ipType);
 void confirm_destroy(struct confirm *confirm);
 
 void confirm_query(struct confirm *confirm, struct confirm_query *query);
@@ -56,6 +59,13 @@ struct confirm_query * confirm_query_create(uint32_t dst, uint8_t ttl,
 		uint8_t flowid, uint8_t revflow,
 		confirm_query_cb cb);
 
+struct confirm_query * confirm_query_create_ipv6(struct libnet_in6_addr dst_ipv6, uint8_t ttl,
+		uint16_t ipid, uint16_t icmpid,
+		uint8_t flowid, uint8_t revflow,
+		confirm_query_cb cb);
+
 void confirm_query_destroy(struct confirm_query *query);
+
+struct libnet_in6_addr nameToAddr6WithConfirm (struct confirm *c, char* dst);
 
 #endif

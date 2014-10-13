@@ -87,6 +87,9 @@ static int confirm_recv(const struct packet *packet, void *confirm);
 static int confirm_recv_parse(const struct packet *pkt, uint32_t *dst,
 	       uint8_t *ttl, uint16_t *icmpid,
 	       uint8_t *flowid, uint8_t *revflow, uint32_t *ip);
+static int confirm_recv_parse6(const struct packet *pkt, struct libnet_in6_addr *dst, /*{{{*/
+	       uint8_t *ttl, uint16_t *icmpid,
+	       uint8_t *flowid, uint8_t *revflow, struct libnet_in6_addr *ip);
 static void confirm_sendevent(struct confirm *confirm, struct event *ev);
 
 static void confirm_mutex_unlock(void *vmutex);
@@ -119,7 +122,7 @@ uint8_t confirm_inverse_flowid(uint16_t chksum);
 /*****************************************************************************
  * public functions
  ****************************************************************************/
-struct confirm * confirm_create(const char *device) /* {{{ */
+struct confirm * confirm_create(const char *device, int ipType) /* {{{ */
 {
 	struct confirm *confirm;
 
@@ -137,7 +140,7 @@ struct confirm * confirm_create(const char *device) /* {{{ */
 	confirm->evlist = dlist_create();
 	if(!confirm->evlist) goto out_cond;
 
-	confirm->sender = sender_create(device);
+	confirm->sender = sender_create(device, ipType);
 	if(!confirm->sender) goto out_evlist;
 	if(pthread_create(&confirm->thread, NULL, confirm_thread, confirm)) {
 		goto out_sender;
@@ -268,15 +271,26 @@ static int confirm_recv(const struct packet *pkt, void *vconfirm) /* {{{ */
 	struct confirm_query *query;
 	struct event *event;
 	uint32_t dst, ip;
+	struct libnet_in6_addr dst_ipv6, ipv6;
 	uint16_t icmpid;
 	uint8_t ttl, flowid, revflow;
 
-	if(!confirm_recv_parse(pkt, &dst, &ttl, &icmpid, &flowid, &revflow, &ip)) {
-		return 1;
+	if(pkt->ipType == 4){
+		if(!confirm_recv_parse(pkt, &dst, &ttl, &icmpid, &flowid, &revflow, &ip)) {
+			return 1;
+		}
+		query = confirm_query_create(dst, ttl, 0, icmpid, flowid, revflow, NULL);
+		query->ip = ip;
+	}
+	else if(pkt->ipType == 6){
+		if(!confirm_recv_parse6(pkt, &dst_ipv6, &ttl, &icmpid, &flowid, &revflow, &ipv6)) {
+			return 1;
+		}
+		query = confirm_query_create_ipv6(dst_ipv6, ttl, 0, icmpid, flowid, revflow, NULL);
+		query->ipv6 = ipv6;
+		query->dst_ipv6 = dst_ipv6;
 	}
 
-	query = confirm_query_create(dst, ttl, 0, icmpid, flowid, revflow, NULL);
-	query->ip = ip;
 	query->response = packet_clone(pkt);
 	query->answertime = pkt->tstamp;
 	event = event_create(EVENT_ANSWER, query);
@@ -313,6 +327,46 @@ static int confirm_recv_parse(const struct packet *pkt, uint32_t *dst, /*{{{*/
 		*icmpid = ntohs(ricmp->icmp_id);
 		revsum = ntohs(pkt->icmp->icmp_sum);
 		data = ntohs(ricmp->icmp_seq);
+	}
+	int fixrev;
+	confirm_data_unpack(data, ttl, flowid, &fixrev);
+	if(fixrev) {
+		*revflow = confirm_inverse_flowid(revsum);
+		*icmpid = 0;
+	} else {
+		*revflow = 0;
+	}
+	return 1;
+} /* }}} */
+
+static int confirm_recv_parse6(const struct packet *pkt, struct libnet_in6_addr *dst, /*{{{*/
+	       uint8_t *ttl, uint16_t *icmpid,
+	       uint8_t *flowid, uint8_t *revflow, struct libnet_in6_addr *ip)
+{
+	//if(pkt->ip->ip_p != IPPROTO_ICMP) return 0;
+
+	if(pkt->icmpv6->icmp_type != ICMP_ECHOREPLY &&
+			pkt->icmpv6->icmp_type != ICMP_TIMXCEED) {
+		return 0;
+	}
+
+	*ip = pkt->ipv6->ip_src;
+	uint16_t data;
+	uint16_t revsum;
+	if(pkt->icmpv6->icmp_type == ICMP_ECHOREPLY) {
+		*dst = pkt->ipv6->ip_dst;
+		*icmpid = ntohs(pkt->icmpv6->id);
+		data = ntohs(pkt->icmpv6->seq);
+	} else if(pkt->icmpv6->icmp_type == ICMP_TIMXCEED) {
+		if(pkt->icmpv6->icmp_code != ICMP_TIMXCEED_INTRANS) return 0;
+		struct libnet_ipv6_hdr *rip;
+		struct libnet_icmpv6_hdr *ricmp;
+		rip = (struct libnet_ipv6_hdr *)(pkt->payload);
+		ricmp = (struct libnet_icmpv6_hdr *)(pkt->payload + rip->ip_hl*4);
+		*dst = rip->ip_dst;
+		*icmpid = ntohs(ricmp->id);
+		revsum = ntohs(pkt->icmpv6->icmp_sum);
+		data = ntohs(ricmp->seq);
 	}
 	int fixrev;
 	confirm_data_unpack(data, ttl, flowid, &fixrev);
@@ -438,10 +492,19 @@ static void event_run_query(struct confirm *conf, struct event *ev)
 {
 	struct confirm_query *query = ev->query;
 	assert(ev->type == EVENT_QUERY);
-	char addr[INET_ADDRSTRLEN];
-	if(!inet_ntop(AF_INET, &query->dst, addr, INET_ADDRSTRLEN)) goto out;
-	logd(LOG_EXTRA, "query dst=%s ttl=%d flowid=%d\n", addr, query->ttl,
-				query->flowid);
+	if(query->ipType == 4){
+        char addr[INET_ADDRSTRLEN];
+        if(!inet_ntop(AF_INET, &query->dst, addr, INET_ADDRSTRLEN)) goto out;
+        logd(LOG_EXTRA, "query dst=%s ttl=%d flowid=%d\n", addr, query->ttl,
+                    query->flowid);
+	}
+	else if(query->ipType == 6){
+        char addr[INET6_ADDRSTRLEN];
+        if(!inet_ntop(AF_INET6, &query->dst, addr, INET6_ADDRSTRLEN)) goto out;
+        logd(LOG_EXTRA, "query dst=%s ttl=%d flowid=%d\n", addr, query->ttl,
+                    query->flowid);
+	}
+
 
 	if(query->ntries == 0) goto out_noconfirm;
 	if(pavl_find(conf->queries, query)) goto out_dup;
@@ -480,17 +543,34 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 	struct packet *pkt;
 	if(query->icmpid) {
 		data = confirm_data_pack(query->ttl, query->flowid, 0);
-		pkt = sender_send_icmp(conf->sender, query->dst,
-				query->ttl,
-				query->ipid, id2checksum[query->flowid],
-				query->icmpid, data, query->padding);
+		if(query->ipType == 4){
+            pkt = sender_send_icmp(conf->sender, query->dst,
+                    query->ttl,
+                    query->ipid, id2checksum[query->flowid],
+                    query->icmpid, data, query->padding);
+		}
+		else if(query->ipType == 6){
+            pkt = sender_send_icmp6(conf->sender, query->dst_ipv6,
+                    query->ttl,
+                    query->ipid, id2checksum[query->flowid],
+                    query->icmpid, data, query->padding);
+		}
+
 	} else {
 		data = confirm_data_pack(query->ttl, query->flowid, 1);
 		uint16_t revsum = id2checksum[query->revflow];
-		pkt = sender_send_icmp_fixrev(conf->sender, query->dst,
-				query->ttl,
-				query->ipid, id2checksum[query->flowid],
-				revsum, data, query->padding);
+		if(query->ipType == 4){
+            pkt = sender_send_icmp_fixrev(conf->sender, query->dst,
+                    query->ttl,
+                    query->ipid, id2checksum[query->flowid],
+                    revsum, data, query->padding);
+        }
+        else if(query->ipType == 6){
+            pkt = sender_send_icmp6_fixrev(conf->sender, query->dst_ipv6,
+                    query->ttl,
+                    query->ipid, id2checksum[query->flowid],
+                    revsum, data, query->padding);
+        }
 	}
 
 	if(query->probe == NULL) { query->probe = pkt; }
@@ -590,6 +670,64 @@ confirm_query_create(uint32_t dst, uint8_t ttl,
 	query->ip = UINT_MAX;
 	query->trynum = 0;
 
+    query->ipType = 4;
+
+	query->probetime.tv_sec = 2;
+	query->probetime.tv_nsec = 0;
+	query->timeout.tv_sec = 5;
+	query->timeout.tv_nsec = 0;
+	query->start.tv_sec = 0;
+	query->start.tv_nsec = 0;
+	query->lastpkt.tv_sec = 0;
+	query->lastpkt.tv_nsec = 0;
+	query->answertime.tv_sec = 0;
+	query->answertime.tv_nsec = 0;
+	query->event = NULL;
+
+	query->probe = NULL;
+	query->response = NULL;
+	return query;
+}
+
+struct confirm_query * confirm_query_create_ipv6(struct libnet_in6_addr dst_ipv6, uint8_t ttl,
+		uint16_t ipid, uint16_t icmpid,
+		uint8_t flowid, uint8_t revflow,
+		confirm_query_cb cb)
+{
+	struct confirm_query *query;
+
+	query = malloc(sizeof(struct confirm_query));
+	if(!query) logea(__FILE__, __LINE__, NULL);
+	query->dst_ipv6 = dst_ipv6;
+	query->ttl = ttl;
+	query->ipid = ipid;
+	query->icmpid = icmpid;
+	if(flowid > CONFIRM_MAX_FLOWID || revflow > CONFIRM_MAX_FLOWID) {
+		logd(LOG_WARN, "%s,%d: flowid > 127!\n", __FILE__, __LINE__);
+	}
+	query->flowid = flowid & CONFIRM_MAX_FLOWID;
+	query->padding = 0;
+	query->revflow = (icmpid) ? 0 : revflow & CONFIRM_MAX_FLOWID;
+
+	query->ntries = 1;
+	query->cb = cb;
+	query->data = NULL;
+
+	int i;
+	for(i=0; i < 16; i++){
+        query->ipv6.__u6_addr.__u6_addr8[i] = UINT_MAX;
+	}
+	for(i=0; i < 8; i++){
+        query->ipv6.__u6_addr.__u6_addr16[i] = UINT_MAX;
+	}
+    for(i=0; i < 4; i++){
+        query->ipv6.__u6_addr.__u6_addr32[i] = UINT_MAX;
+	}
+
+	query->trynum = 0;
+
+    query->ipType = 6;
+
 	query->probetime.tv_sec = 2;
 	query->probetime.tv_nsec = 0;
 	query->timeout.tv_sec = 5;
@@ -653,3 +791,9 @@ static void confirm_data_unpack(uint16_t data, uint8_t *ttl, uint8_t *fwflow,
 	*fwflow = (uint8_t)((data >> 8) & CONFIRM_MAX_FLOWID);
 	*fixrev = data & DATA_FLAG_REVFLOW;
 } /* }}} */
+
+struct libnet_in6_addr nameToAddr6WithConfirm (struct confirm *c, char* dst){
+     struct libnet_in6_addr dst_ipv6;
+     dst_ipv6 = nameToAddr6WithSender(c->sender, dst);
+     return dst_ipv6;
+}

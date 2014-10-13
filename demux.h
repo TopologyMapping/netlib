@@ -7,7 +7,7 @@
 
 /* the demuxer is a singleton entity that listens on a given interface
  * and calls listener functions for each arriving on that interface. */
-int demux_init(const char *ifname);
+int demux_init(const char *ifname, int ipType);
 void demux_destroy(void);
 
 typedef int (*demux_listener_fn)(const struct packet *pkt, void *data);

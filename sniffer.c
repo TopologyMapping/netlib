@@ -2,6 +2,7 @@
 #include <inttypes.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 
 #include <pthread.h>
 #include <pcap.h>
@@ -23,15 +24,17 @@ struct sniffer {
 static void * sniffer_thread(void *vsniffer);
 /* Returns UINT32_T if no AF_INET address is found. */
 static uint32_t sniffer_getifaddr(pcap_if_t *iface);
+/* Returns UCHAR_MAX if no AF_INET6 address is found. */
+static unsigned char * sniffer_getifaddr6(pcap_if_t *iface);
 /* Returns 0 on success and -1 on error. */
-static int sniffer_openpcap_bpf(struct sniffer *s, pcap_if_t *iface);
+static int sniffer_openpcap_bpf(struct sniffer *s, pcap_if_t *iface, int ipType);
 /* Returns 0 on success and -1 on error. */
-static int sniffer_openpcap(struct sniffer *s, pcap_if_t *iface);
+static int sniffer_openpcap(struct sniffer *s, pcap_if_t *iface, int ipType);
 
 /*****************************************************************************
  * Public functions.
  ****************************************************************************/
-struct sniffer * sniffer_create(pcap_if_t *iface, pcap_handler cb) /* {{{ */
+struct sniffer * sniffer_create(pcap_if_t *iface, pcap_handler cb, int ipType) /* {{{ */
 {
 	struct sniffer *s;
 
@@ -42,7 +45,7 @@ struct sniffer * sniffer_create(pcap_if_t *iface, pcap_handler cb) /* {{{ */
 	s->ifname = malloc(strlen(iface->name)+1);
 	if(!s->ifname) logea(__FILE__, __LINE__, NULL);
 	strcpy(s->ifname, iface->name);
-	if(sniffer_openpcap(s, iface)) goto out;
+	if(sniffer_openpcap(s, iface, ipType)) goto out;
 	if(pthread_create(&s->pthread, NULL, sniffer_thread, s)) goto out_pcap;
 
 	logd(LOG_INFO, "%s dev=%s ok\n", __func__, s->ifname);
@@ -95,6 +98,21 @@ static void * sniffer_thread(void *vsniffer) /* {{{ */
 	pthread_exit((void *)1);
 } /* }}} */
 
+static unsigned char * sniffer_getifaddr6(pcap_if_t *iface) /* {{{ */
+{
+	pcap_addr_t *paddr;
+	for(paddr = iface->addresses; paddr; paddr = paddr->next) {
+		struct sockaddr *saddr = paddr->addr;
+		if(saddr->sa_family == AF_INET6) {
+			struct sockaddr_in6 *inaddr6;
+			inaddr6 = (struct sockaddr_in6 *)saddr;
+			return inaddr6->sin6_addr.s6_addr;
+		}
+	}
+	logd(LOG_WARN, "%s no AF_INET6 address in %s\n", __func__, iface->name);
+	return UCHAR_MAX;
+}
+
 static uint32_t sniffer_getifaddr(pcap_if_t *iface) /* {{{ */
 {
 	pcap_addr_t *paddr;
@@ -110,18 +128,29 @@ static uint32_t sniffer_getifaddr(pcap_if_t *iface) /* {{{ */
 	return UINT32_MAX;
 } /* }}} */
 
-static int sniffer_openpcap_bpf(struct sniffer *s, pcap_if_t *iface) /* {{{ */
+static int sniffer_openpcap_bpf(struct sniffer *s, pcap_if_t *iface, int ipType) /* {{{ */
 {
 	struct bpf_program bpf;
 	uint32_t ip;
+	unsigned char *ipv6;
 	char addr[INET_ADDRSTRLEN];
+	char addr6[INET6_ADDRSTRLEN];
 	char bpfstr[64];
 
 	memset(&bpf, 0, sizeof(struct bpf_program));
-	ip = sniffer_getifaddr(iface);
-	if(ip == UINT32_MAX) goto out;
-	if(!inet_ntop(AF_INET, &ip, addr, INET_ADDRSTRLEN)) goto out;
-	sprintf(bpfstr, "dst host %s && (icmp || udp)", addr);
+	if(ipType==6){
+        ipv6 = sniffer_getifaddr6(iface);
+        if(ipv6 == UCHAR_MAX) goto out;
+        if(!inet_ntop(AF_INET6, &ipv6, addr6, INET6_ADDRSTRLEN)) goto out;
+        sprintf(bpfstr, "dst host %s && (icmp || udp)", addr6);
+	}
+	else if(ipType==4){
+        ip = sniffer_getifaddr(iface);
+        if(ip == UINT32_MAX) goto out;
+        if(!inet_ntop(AF_INET, &ip, addr, INET_ADDRSTRLEN)) goto out;
+        sprintf(bpfstr, "dst host %s && (icmp || udp)", addr);
+    }
+
 	if(pcap_compile(s->pcap, &bpf, bpfstr, 1, 0)) goto out_compile;
 	if(pcap_setfilter(s->pcap, &bpf)) goto out_setfilter;
 	pcap_freecode(&bpf);
@@ -138,7 +167,7 @@ static int sniffer_openpcap_bpf(struct sniffer *s, pcap_if_t *iface) /* {{{ */
 	return -1;
 } /* }}} */
 
-static int sniffer_openpcap(struct sniffer *s, pcap_if_t *iface) /* {{{ */
+static int sniffer_openpcap(struct sniffer *s, pcap_if_t *iface, int ipType) /* {{{ */
 {
 	char errbuf[PCAP_ERRBUF_SIZE];
 
@@ -154,7 +183,7 @@ static int sniffer_openpcap(struct sniffer *s, pcap_if_t *iface) /* {{{ */
 	}
 	if(pcap_datalink(s->pcap) != DLT_EN10MB) goto out_datalink;
 
-	if(sniffer_openpcap_bpf(s, iface)) goto out_bpf;
+	if(sniffer_openpcap_bpf(s, iface, ipType)) goto out_bpf;
 	if(pcap_setdirection(s->pcap, PCAP_D_IN)) {
 		logd(LOG_WARN, "%s IN %s\n", __func__, pcap_geterr(s->pcap));
 	}
