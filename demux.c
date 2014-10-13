@@ -77,7 +77,7 @@ int demux_init(const char *ifname, int ipType) /* {{{ */
 	if (ipType==4){
         demux->caps = demux_createcaps(ifname, demux_callback, ipType);
 	}
-	else if (ipType==4){
+	else if (ipType==6){
         demux->caps = demux_createcaps(ifname, demux_callback_ipv6, ipType);
 	}
 	if(!demux->caps) goto out_thread;
