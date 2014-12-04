@@ -6,28 +6,28 @@
 #include "packet.h"
 #include "log.h"
 
-static struct packet * packet_create(const uint8_t *buf, size_t buflen, int ipType);
-static void packet_fill(struct packet *pkt, size_t ipoffset, int ipType);
+static struct packet * packet_create(const uint8_t *buf, size_t buflen);
+static void packet_fill(struct packet *pkt, size_t ipoffset);
 
-struct packet * packet_create_eth(const uint8_t *ethbuf, size_t buflen, int ipType)/*{{{*/
+struct packet * packet_create_eth(const uint8_t *ethbuf, size_t buflen)/*{{{*/
 {
-	struct packet *pkt = packet_create(ethbuf, buflen, ipType);
-	packet_fill(pkt, LIBNET_ETH_H,ipType);
+	struct packet *pkt = packet_create(ethbuf, buflen);
+	packet_fill(pkt, LIBNET_ETH_H);
 	return pkt;
 }/*}}}*/
 
-struct packet * packet_create_ip(const uint8_t *ipbuf, size_t buflen, int ipType)/*{{{*/
+struct packet * packet_create_ip(const uint8_t *ipbuf, size_t buflen)/*{{{*/
 {
-	struct packet *pkt = packet_create(ipbuf, buflen, ipType);
-	packet_fill(pkt, 0, ipType);
+	struct packet *pkt = packet_create(ipbuf, buflen);
+	packet_fill(pkt, 0);
 	return pkt;
 }/*}}}*/
 
 struct packet * packet_clone(const struct packet *orig)/*{{{*/
 {
-	struct packet *pkt = packet_create(orig->buf, orig->buflen, orig->ipType);
+	struct packet *pkt = packet_create(orig->buf, orig->buflen);
 	pkt->tstamp = orig->tstamp;
-	pkt->ipType = orig->ipType;
+	pkt->ipversion = orig->ipversion;
 	pkt->ip = orig->ip;
 	pkt->ipv6 = orig->ipv6;
 	pkt->icmp = orig->icmp;
@@ -47,7 +47,7 @@ char * packet_tostr(const struct packet *pkt)/*{{{*/
     char buf2[4096];
 	char buf3[4096];
 
-	if (pkt->ipType == 4){
+	if (pkt->ipversion == 4){
         char src[INET_ADDRSTRLEN], dst[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &(pkt->ip->ip_src), src, INET_ADDRSTRLEN);
         inet_ntop(AF_INET, &(pkt->ip->ip_dst), dst, INET_ADDRSTRLEN);
@@ -91,47 +91,43 @@ char * packet_tostr(const struct packet *pkt)/*{{{*/
             break;
         }
 	}
-	else if (pkt->ipType == 6){
+	else if (pkt->ipversion == 6){
         char src[INET6_ADDRSTRLEN], dst[INET6_ADDRSTRLEN];
         inet_ntop(AF_INET6, &(pkt->ipv6->ip_src), src, INET6_ADDRSTRLEN);
         inet_ntop(AF_INET6, &(pkt->ipv6->ip_dst), dst, INET6_ADDRSTRLEN);
 
         sprintf(buf1, 	"IP hdrlen %d tos 0x%x len %d\n"
-                "IP id %d frag 0x%x\n"
-                "IP ttl %d proto %d chksum 0x%x\n"
+                "IP ttl %d proto %d \n"
                 "IP src %s 0x%x\n"
                 "IP dst %s 0x%x\n",
                 (int)pkt->ipv6->ip_hl * 4,
-                0,//(int)pkt->ipv6->ip_tos,
+                (int)pkt->ipv6->ip_flags[1],
                 (int)ntohs(pkt->ipv6->ip_len),
-                0,//(int)ntohs(pkt->ipv6->ip_id),
-                0,//(int)pkt->ipv6->ip_off,
                 (int)pkt->ipv6->ip_hl,
-                0,//(int)pkt->ipv6->ip_p,
-                0,//(int)ntohs(pkt->ipv6->ip_sum),
-                src, (int)pkt->ipv6->ip_src.__u6_addr.__u6_addr8,
-                dst, (int)pkt->ipv6->ip_dst.__u6_addr.__u6_addr8);
+                (int)pkt->ipv6->ip_nh,
+                src, (int)pkt->ipv6->ip_src.libnet_s6_addr,
+                dst, (int)pkt->ipv6->ip_dst.libnet_s6_addr);
 
-        /*uint8_t proto = pkt->ip->ip_p;
+        uint8_t proto = pkt->ipv6->ip_nh;
 
         switch(proto) {
         case IPPROTO_ICMP:
             sprintf(buf2, 	"ICMP type %d code %d chksum 0x%x",
-                    pkt->icmp->icmp_type,
-                    pkt->icmp->icmp_code,
-                    ntohs(pkt->icmp->icmp_sum));
-            uint8_t type = pkt->icmp->icmp_type;
-            if(type == ICMP_ECHOREPLY || type == ICMP_ECHO) {
+                    pkt->icmpv6->icmp_type,
+                    pkt->icmpv6->icmp_code,
+                    ntohs(pkt->icmpv6->icmp_sum));
+            uint8_t type = pkt->icmpv6->icmp_type;
+            if(type == ICMP6_ECHOREPLY || type == ICMP6_ECHO) {
                 sprintf(buf3,	"\nICMP id %d seq %d",
-                        ntohs(pkt->icmp->icmp_id),
-                        ntohs(pkt->icmp->icmp_seq));
+                        ntohs(pkt->icmpv6->id),
+                        ntohs(pkt->icmpv6->seq));
             }
             strcat(buf2, buf3);
             break;
         default:
             sprintf(buf2, "transport protocol not supported");
             break;
-        }*/
+        }
 	}
 
 	strcat(buf1, buf2);
@@ -143,7 +139,7 @@ char * packet_tostr(const struct packet *pkt)/*{{{*/
 
 
 
-static struct packet * packet_create(const uint8_t *buf, size_t buflen, int ipType)/*{{{*/
+static struct packet * packet_create(const uint8_t *buf, size_t buflen)/*{{{*/
 {
 	struct packet *pkt = malloc(sizeof(*pkt));
 	if(!pkt) logea(__FILE__, __LINE__, NULL);
@@ -152,15 +148,16 @@ static struct packet * packet_create(const uint8_t *buf, size_t buflen, int ipTy
 	pkt->tstamp.tv_sec = 0;
 	pkt->tstamp.tv_nsec = 0;
 	pkt->buflen = buflen;
-	pkt->ipType = ipType;
+    struct ipversion_toread ipv;
+	memcpy(&ipv, buf, 1);
+	pkt->ipversion = ipv.ip_v;
 	memcpy(pkt->buf, buf, buflen);
 	return pkt;
 }/*}}}*/
 
-void packet_fill(struct packet *pkt, size_t ipoffset, int ipType)/*{{{*/
+void packet_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 {
-	if (ipType == 4){
-        pkt->ipType = 4;
+	if (pkt->ipversion == 4){
         pkt->ip = (struct libnet_ipv4_hdr *)(pkt->buf + ipoffset);
         assert(pkt->ip->ip_v == 4);
 
@@ -214,49 +211,35 @@ void packet_fill(struct packet *pkt, size_t ipoffset, int ipType)/*{{{*/
             break;
         }
 	}
-	else if (ipType == 6){
-        pkt->ipType = 6;
+	else if (pkt->ipversion == 6){
         pkt->ipv6 = (struct libnet_ipv6_hdr *)(pkt->buf + ipoffset);
-        //assert(pkt->ipv6->ip_v == 6);
+
 
         pkt->icmpv6 = (struct libnet_icmpv6_hdr *)(pkt->buf + ipoffset +
                                 pkt->ipv6->ip_hl*4);
 
 
-        /*switch(pkt->ipv6->ip_p) {
+        switch(pkt->ipv6->ip_nh) {
         case IPPROTO_ICMP: {
             size_t icmplen = 0;
-            switch(pkt->icmp6->icmp_type) {
+            switch(pkt->icmpv6->icmp_type) {
             default:
-            case ICMP_IREQ:
-            case ICMP_IREQREPLY:
-            case ICMP_PARAMPROB:
-            case ICMP_ROUTERADVERT:
-            case ICMP_ROUTERSOLICIT:
-            case ICMP_SOURCEQUENCH:
-            case ICMP_ECHO:
-            case ICMP_ECHOREPLY:
+            case ICMP6_PARAMPROB:
+            case ICMP6_ECHO:
+            case ICMP6_ECHOREPLY:
                 icmplen = LIBNET_ICMPV6_ECHO_H;
                 break;
-            case ICMP_UNREACH:
+            case ICMP6_UNREACH:
                 icmplen = LIBNET_ICMPV6_UNREACH_H;
                 break;
             case ICMP_REDIRECT:
-                icmplen = LIBNET_ICMPV6_REDIRECT_H;
+                icmplen = LIBNET_ICMPV6_H;
                 break;
-            case ICMP_TIMXCEED:
-                icmplen = LIBNET_ICMPV6_TIMXCEED_H;
-                break;
-            case ICMP_TSTAMP:
-            case ICMP_TSTAMPREPLY:
-                icmplen = LIBNET_ICMPV6_TS_H;
-                break;
-            case ICMP_MASKREQ:
-            case ICMP_MASKREPLY:
-                icmplen = LIBNET_ICMPV6_MASK_H;
+            case ICMP6_TIMXCEED:
+                icmplen = LIBNET_ICMPV6_H;
                 break;
             }
-            pkt->payload = (uint8_t *)(pkt->icmp6) + icmplen;
+            pkt->payload = (uint8_t *)(pkt->icmpv6) + icmplen;
             break;
         }
         case IPPROTO_UDP:
@@ -268,6 +251,6 @@ void packet_fill(struct packet *pkt, size_t ipoffset, int ipType)/*{{{*/
         default:
             logd(LOG_FATAL, "%s unknown ip proto\n", __func__);
             break;
-        }*/
+        }
 	}
 }/*}}}*/

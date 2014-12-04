@@ -42,10 +42,8 @@ static void * demux_thread(void *nothing);
 /* This function calls |test| for all interfaces on the computer. If |testif|
  * returns non-zero, then capture_create is called for that interface. returns
  * NULL-terminated array of sniffer structs or NULL on error. */
-static struct sniffer ** demux_createcaps(const char *ifn, pcap_handler cb, int ipType);
+static struct sniffer ** demux_createcaps(const char *ifn, pcap_handler cb);
 static void demux_callback(unsigned char *vcap,
-		const struct pcap_pkthdr *pkthdr, const unsigned char *pkt);
-static void demux_callback_ipv6(unsigned char *vcap,
 		const struct pcap_pkthdr *pkthdr, const unsigned char *pkt);
 static int demux_check_iface(const char *iface, pcap_if_t *pcapif);
 
@@ -55,7 +53,7 @@ static void demux_mutex_unlock(void *vmutex);
 /*****************************************************************************
  * public implementations
  ****************************************************************************/
-int demux_init(const char *ifname, int ipType) /* {{{ */
+int demux_init(const char *ifname) /* {{{ */
 {
 	if(demux) return 0;
 	demux = malloc(sizeof(struct demux));
@@ -74,12 +72,7 @@ int demux_init(const char *ifname, int ipType) /* {{{ */
 		goto out_mutex2;
 	}
 
-	if (ipType==4){
-        demux->caps = demux_createcaps(ifname, demux_callback, ipType);
-	}
-	else if (ipType==6){
-        demux->caps = demux_createcaps(ifname, demux_callback_ipv6, ipType);
-	}
+	demux->caps = demux_createcaps(ifname, demux_callback);
 	if(!demux->caps) goto out_thread;
 
 	return 0;
@@ -183,7 +176,7 @@ void demux_listener_del(demux_listener_fn cb, void *data) /* {{{ */
  * Internal functions.
  ****************************************************************************/
 static struct sniffer ** demux_createcaps(const char *ifname, /* {{{ */
-		pcap_handler cb, int ipType)
+		pcap_handler cb)
 {
 	const int DEMUX_MAX_SNIFFERS = 1024;
 	int cnt;
@@ -197,7 +190,7 @@ static struct sniffer ** demux_createcaps(const char *ifname, /* {{{ */
 	for(iface = ifs, cnt = 0; iface && cnt < DEMUX_MAX_SNIFFERS;
 			iface = iface->next) {
 		if(demux_check_iface(ifname, iface)) {
-			struct sniffer *s = sniffer_create(iface, cb, ipType);
+			struct sniffer *s = sniffer_create(iface, cb);
 			if(!s) logd(LOG_DEBUG, "%s !ok\n", iface->name);
 			else caps[cnt++] = s;
 		}
@@ -226,7 +219,7 @@ static void demux_callback(unsigned char *vcap, /* {{{ */
 
 	pthread_mutex_lock(&demux->imut);
 	if(demux->usedbuf >= DEMUX_BUFSZ) goto out_buf;
-	struct packet *spkt = packet_create_eth(pkt, pkthdr->caplen, 4);
+	struct packet *spkt = packet_create_eth(pkt, pkthdr->caplen);
 	spkt->tstamp.tv_sec = pkthdr->ts.tv_sec;
 	spkt->tstamp.tv_nsec = pkthdr->ts.tv_usec * 1000;
 	assert(demux->packets[demux->writeidx] == NULL);
@@ -242,30 +235,6 @@ static void demux_callback(unsigned char *vcap, /* {{{ */
 	pthread_cond_signal(&demux->read);
 	pthread_mutex_unlock(&demux->imut);
 } /* }}} */
-
-static void demux_callback_ipv6(unsigned char *vcap, /* {{{ */
-		const struct pcap_pkthdr *pkthdr, const unsigned char *pkt)
-{
-	assert(pkthdr->caplen == pkthdr->len);
-
-	pthread_mutex_lock(&demux->imut);
-	if(demux->usedbuf >= DEMUX_BUFSZ) goto out_buf;
-	struct packet *spkt = packet_create_eth(pkt, pkthdr->caplen, 6);
-	spkt->tstamp.tv_sec = pkthdr->ts.tv_sec;
-	spkt->tstamp.tv_nsec = pkthdr->ts.tv_usec * 1000;
-	assert(demux->packets[demux->writeidx] == NULL);
-	demux->packets[demux->writeidx] = spkt;
-	demux->writeidx = (demux->writeidx + 1) % DEMUX_BUFSZ;
-	demux->usedbuf += 1;
-	pthread_cond_signal(&demux->read);
-	pthread_mutex_unlock(&demux->imut);
-	return;
-
-	out_buf:
-	logd(LOG_DEBUG, "%s:%d: buffer full\n", __FILE__, __LINE__);
-	pthread_cond_signal(&demux->read);
-	pthread_mutex_unlock(&demux->imut);
-}
 
 static void * demux_thread(void *nothing) /* {{{ */
 {
