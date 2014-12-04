@@ -21,18 +21,26 @@ int check_permissions(void) { /* {{{ */
 void querycb(struct confirm_query *q)/*{{{*/
 {
 
-	if (q->ipType == 6){
-		char dstaddr[INET6_ADDRSTRLEN];
-        char ipaddr[INET6_ADDRSTRLEN];
-	  	inet_ntop(AF_INET6, &(q->dst_ipv6), dstaddr, INET6_ADDRSTRLEN);
-        inet_ntop(AF_INET6, &(q->ipv6), ipaddr, INET6_ADDRSTRLEN);
-        printf("dst %s ttl %d ip %s\n", dstaddr, (int)q->ttl, ipaddr);
-	}
-	else if (q->ipType == 4){
+	if (q->ip->sa_family == AF_INET){
         char dstaddr[80];
         char ipaddr[80];
-		inet_ntop(AF_INET, &(q->dst), dstaddr, INET_ADDRSTRLEN);
-        inet_ntop(AF_INET, &(q->ip), ipaddr, INET_ADDRSTRLEN);
+
+        struct sockaddr_in *ipv4 = (struct sockaddr_in *)q->ip;
+        struct sockaddr_in *ipv4_dst = (struct sockaddr_in *)q->dst;
+
+		inet_ntop(AF_INET, &ipv4_dst->sin_addr.s_addr, dstaddr, INET_ADDRSTRLEN);
+        inet_ntop(AF_INET, &ipv4->sin_addr.s_addr, ipaddr, INET_ADDRSTRLEN);
+        printf("dst %s ttl %d ip %s\n", dstaddr, (int)q->ttl, ipaddr);
+	}
+	else {
+		char dstaddr[INET6_ADDRSTRLEN];
+        char ipaddr[INET6_ADDRSTRLEN];
+
+        struct libnet_in6_addr *ipv6 = (struct libnet_in6_addr *)q->ip;
+        struct libnet_in6_addr *ipv6_dst = (struct libnet_in6_addr *)q->dst;
+
+	  	inet_ntop(AF_INET6, ipv6_dst, dstaddr, INET6_ADDRSTRLEN);
+        inet_ntop(AF_INET6, ipv6, ipaddr, INET6_ADDRSTRLEN);
         printf("dst %s ttl %d ip %s\n", dstaddr, (int)q->ttl, ipaddr);
 	}
 
@@ -51,34 +59,40 @@ int main(int argc, char **argv)
 
 	char *iface = argv[1];
 	int ttl = atoi(argv[2]);
-    int ipType; // ipType = 4 to IPv4; ipType = 6 to IPv6;
+    int ipversion ; // ipversion = 4 to IPv4; ipversion = 6 to IPv6;
     if(argc == 4){
-        ipType = atoi(argv[3]);
+        ipversion = atoi(argv[3]);
     }
     else{
-        ipType = 4;
+        ipversion = 4;
     }
+
+    /*char *iface = "eth0";
+	int ttl = 20;
+    int ipversion = 4; // ipType = 4 to IPv4; ipType = 6 to IPv6;*/
 
 	log_init(LOG_EXTRA, "log.txt", 1, 1024*1024*16);
 
-	demux_init(iface, ipType);
-	struct confirm *conf = confirm_create(iface, ipType);
+	demux_init(iface);
+	struct confirm *conf = confirm_create(iface, ipversion);
 
 	struct confirm_query *q;
-	if (ipType==4){
-        q = confirm_query_create(2, ttl, 1, 1, 1, 0, querycb);
-        confirm_query(conf, q);
-        q = confirm_query_create(2, ttl+1, 1, 0, 1, 0, querycb);
-        confirm_query(conf, q);
-	}
-	else if (ipType==6){
-        struct libnet_in6_addr dst_ipv6;
-        dst_ipv6 = nameToAddr6WithConfirm(conf, "::2");
-        q = confirm_query_create_ipv6(dst_ipv6, ttl, 1, 1, 1, 0, querycb);
-        confirm_query(conf, q);
-        q = confirm_query_create_ipv6(dst_ipv6, ttl+1, 1, 0, 1, 0, querycb);
-        confirm_query(conf, q);
-	}
+    struct sockaddr *dst;
+	if (ipversion == 4){
+        struct sockaddr_in *ipv4_dst = (struct sockaddr_in *)malloc(sizeof(struct sockaddr_in));
+        ipv4_dst->sin_family = AF_INET;
+        ipv4_dst->sin_addr.s_addr = 2;
+        dst = ipv4_dst;
+    }
+    else if (ipversion==6){
+        struct libnet_in6_addr *ipv6_dst = (struct libnet_in6_addr *)malloc(sizeof(struct libnet_in6_addr));
+        *ipv6_dst = nameToAddr6WithConfirm(conf, "::2");
+        dst = ipv6_dst;
+    }
+    q = confirm_query_create(dst, ttl, 1, 1, 1, 0, querycb);
+    confirm_query(conf, q);
+    q = confirm_query_create(dst, ttl+1, 1, 0, 1, 0, querycb);
+    confirm_query(conf, q);
 
 	sleep(10);
 
