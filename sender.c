@@ -148,8 +148,7 @@ struct packet * sender_send_icmp_fixrev(struct sender *s, /* {{{ */
 	uint8_t buf[LIBNET_IPV4_H + 2*LIBNET_ICMPV4_ECHO_H];
 	memcpy(buf, &outer, LIBNET_ICMPV4_ECHO_H);
 	memcpy(buf + LIBNET_ICMPV4_ECHO_H, &iip, LIBNET_IPV4_H);
-	memcpy(buf + LIBNET_ICMPV4_ECHO_H + LIBNET_IPV4_H, &iicmp,
-					LIBNET_ICMPV4_ECHO_H);
+	memcpy(buf + LIBNET_ICMPV4_ECHO_H + LIBNET_IPV4_H, &iicmp, LIBNET_ICMPV4_ECHO_H);
 	chksum = libnet_in_cksum((uint16_t *)buf, sizeof(buf));
 	iicmp.icmp_id = LIBNET_CKSUM_CARRY(chksum);
 

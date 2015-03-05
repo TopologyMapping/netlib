@@ -523,35 +523,35 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 		data = confirm_data_pack(query->ttl, query->flowid, 0);
 		if(query->ip.ss_family == AF_INET){
 			pkt = sender_send_icmp(conf->sender, (((struct sockaddr_in *) &query->dst)->sin_addr.s_addr),
-                    query->ttl,
-                    query->ipid, id2checksum[query->flowid],
-                    query->icmpid, data, query->padding);
+						query->ttl,
+                    	query->ipid, id2checksum[query->flowid],
+                    	query->icmpid, data, query->padding);
 		}
 		else {
 			struct libnet_in6_addr ipv6_dst;
 			memcpy(&ipv6_dst, &(((struct sockaddr_in6 *) &query->dst)->sin6_addr), sizeof(struct libnet_in6_addr));
 			pkt = sender6_send_icmp(conf->sender6, ipv6_dst,
-                    query->ttl,
-                    query->ipid, id2checksum[query->flowid],
-                    query->icmpid, data, query->padding);
+						query->ttl,
+                    	query->ipid, id2checksum[query->flowid],
+                    	query->icmpid, data, query->padding);
 		}
 	} else {
 		data = confirm_data_pack(query->ttl, query->flowid, 1);
 		uint16_t revsum = id2checksum[query->revflow];
 		if(query->ip.ss_family == AF_INET){
 			pkt = sender_send_icmp_fixrev(conf->sender, (((struct sockaddr_in *) &query->dst)->sin_addr.s_addr),
-                    query->ttl,
-                    query->ipid, id2checksum[query->flowid],
-                    revsum, data, query->padding);
+                    	query->ttl,
+                    	query->ipid, id2checksum[query->flowid],
+                    	revsum, data, query->padding);
 		}
 		else {
 			struct libnet_in6_addr ipv6_dst;
 			memcpy(&ipv6_dst, &(((struct sockaddr_in6 *) &query->dst)->sin6_addr), sizeof(struct libnet_in6_addr));
 			pkt = NULL;
 			/*pkt = sender6_send_icmp_fixrev(conf->sender6, ipv6_dst,
-                    query->ttl,
-                    query->ipid, id2checksum[query->flowid],
-                    revsum, data, query->padding);*/
+                    	query->ttl,
+                    	query->ipid, id2checksum[query->flowid],
+                    	revsum, data, query->padding);*/
 		}
 	}
 
@@ -699,7 +699,7 @@ confirm_query_create(struct sockaddr_storage dst, uint8_t ttl,
 void confirm_query_destroy(struct confirm_query *query)
 {
 	if(query->probe) packet_destroy(query->probe);
-	if(query->response) packet_destroy(query->response);;
+	if(query->response) packet_destroy(query->response);
 	free(query);
 }
 

@@ -161,8 +161,7 @@ void packet_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 		pkt->ip = (struct libnet_ipv4_hdr *)(pkt->buf + ipoffset);
 		assert(pkt->ip->ip_v == 4);
 
-		pkt->icmp = (struct libnet_icmpv4_hdr *)(pkt->buf + ipoffset +
-								pkt->ip->ip_hl*4);
+		pkt->icmp = (struct libnet_icmpv4_hdr *)(pkt->buf + ipoffset + pkt->ip->ip_hl*4);
 
 		switch(pkt->ip->ip_p) {
 		case IPPROTO_ICMP: {
