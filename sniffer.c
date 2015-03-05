@@ -135,23 +135,42 @@ static int sniffer_openpcap_bpf(struct sniffer *s, pcap_if_t *iface) /* {{{ */
 	unsigned char *ipv6;
 	char addr[INET_ADDRSTRLEN];
 	char addr6[INET6_ADDRSTRLEN];
-	char bpfstr[64];
+	char bpfstr4[64];
+	char bpfstr6[64];
+	char bpfstrfinal[128];
+    int hasdst4, hasdst6;
+    hasdst4 = 0;
+    hasdst6 = 0;
 
 	memset(&bpf, 0, sizeof(struct bpf_program));
-	/*if(ipversion==6){
-        ipv6 = sniffer_getifaddr6(iface);
-        if(ipv6 == UCHAR_MAX) goto out;
-        if(!inet_ntop(AF_INET6, &ipv6, addr6, INET6_ADDRSTRLEN)) goto out;
-        sprintf(bpfstr, "dst host %s && (icmp || udp)", addr6);
-	}
-	else if(ipversion==4){
-        ip = sniffer_getifaddr(iface);
-        if(ip == UINT32_MAX) goto out;
-        if(!inet_ntop(AF_INET, &ip, addr, INET_ADDRSTRLEN)) goto out;
-        sprintf(bpfstr, "dst host %s && (icmp || udp)", addr);
-    }*/
-    sprintf(bpfstr, "(icmp || udp)");
-	if(pcap_compile(s->pcap, &bpf, bpfstr, 1, 0)) goto out_compile;
+
+    ip = sniffer_getifaddr(iface);
+    if(ip != UINT32_MAX) {
+        if(inet_ntop(AF_INET, &ip, addr, INET_ADDRSTRLEN)) {
+            sprintf(bpfstr4, "(dst host %s)", addr);
+            hasdst4 = 1;
+        }
+    }
+    ipv6 = sniffer_getifaddr6(iface);
+    if(ipv6 != UCHAR_MAX) {
+        if(inet_ntop(AF_INET6, &ipv6, addr6, INET6_ADDRSTRLEN)) {
+            sprintf(bpfstr6, "(dst host %s)", addr6);
+            hasdst6 = 1;
+        }
+    }
+
+    if (hasdst4 && hasdst6){
+        sprintf(bpfstrfinal, "(%s || %s) && ", bpfstr4, bpfstr6);
+    }
+    else if (hasdst4){
+        sprintf(bpfstrfinal, "%s && ", bpfstr4);
+    }
+    else if (hasdst6){
+        sprintf(bpfstrfinal, "%s && ", bpfstr6);
+    }
+    strcat(bpfstrfinal, "(icmp || udp)");
+
+	if(pcap_compile(s->pcap, &bpf, bpfstrfinal, 1, 0)) goto out_compile;
 	if(pcap_setfilter(s->pcap, &bpf)) goto out_setfilter;
 	pcap_freecode(&bpf);
 	return 0;

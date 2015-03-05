@@ -5,8 +5,7 @@
 #include <time.h>
 #include <libnet.h>
 
-struct ipversion_toread
-{
+struct ipversion_toread{
     uint8_t ip_hl:4,ip_v:4;
 };
 

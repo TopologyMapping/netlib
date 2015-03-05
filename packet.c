@@ -148,9 +148,9 @@ static struct packet * packet_create(const uint8_t *buf, size_t buflen)/*{{{*/
 	pkt->tstamp.tv_sec = 0;
 	pkt->tstamp.tv_nsec = 0;
 	pkt->buflen = buflen;
-    struct ipversion_toread ipv;
-	memcpy(&ipv, buf, 1);
-	pkt->ipversion = ipv.ip_v;
+	struct ipversion_toread ipv;
+    memcpy(&ipv, buf, 1);
+    pkt->ipversion = ipv.ip_v;
 	memcpy(pkt->buf, buf, buflen);
 	return pkt;
 }/*}}}*/

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <libnet.h>
 #include "sender.h"
+#include "sender6.h"
 #include "log.h"
 
 
@@ -33,27 +34,31 @@ int main(int argc, char **argv)
     else{
         ipversion = 4;
     }
+
 	/*char *iface = "eth0";
 	int ttl = 20;
-    int ipversion = 6;// ipversion = 4 to IPv4; ipType = 6 to IPv6;*/
+    int ipversion = 6;*/
 
 	log_init(LOG_EXTRA, "log.txt", 1, 1024*1024*16);
 
-	struct sender *s = sender_create(iface, ipversion);
+
 	struct packet *pkt;
-	struct sockaddr *dst;
+	struct sender *s;
 	if (ipversion == 4){
-        struct sockaddr_in *ipv4_dst = (struct sockaddr_in *)malloc(sizeof(struct sockaddr_in ));
-        ipv4_dst->sin_family = AF_INET;
-        ipv4_dst->sin_addr.s_addr = 2;
-        dst = ipv4_dst;
+        s = sender_create(iface);
+        pkt = sender_send_icmp(s, 2, ttl, 1, 1, 1, 1, 1000);
+        sender_destroy(s);
 	}
 	else if (ipversion == 6){
-        struct libnet_in6_addr *ipv6_dst = (struct libnet_in6_addr *)malloc(sizeof(struct libnet_in6_addr ));
-        *ipv6_dst = nameToAddr6WithSender(s, "::2");
-        dst = ipv6_dst;
+        struct sender6 *s6 = sender6_create(iface);
+        struct libnet_in6_addr ipv6_dst;
+        struct sockaddr_in6 sa;
+        inet_pton(AF_INET6, "::2", &(sa.sin6_addr));
+        memcpy(&ipv6_dst, &sa.sin6_addr, sizeof(struct libnet_in6_addr));
+        pkt = sender6_send_icmp(s6, ipv6_dst, ttl, 1, 1, 1, 1, 1000);
+        sender6_destroy(s6);
 	}
-	pkt = sender_send_icmp(s, dst, ttl, 1, 1, 1, 1, 1000);
+
 	char *str = packet_tostr(pkt);
 	logd(LOG_DEBUG, "%s\n", str);
 	free(str);
@@ -61,20 +66,20 @@ int main(int argc, char **argv)
 
 	sleep(2);
 
-	/*if (ipversion == 4){
+	if (ipversion == 4){
         pkt = sender_send_icmp_fixrev(s, 2, ttl, 1, 1, 1, 1, 1000);
 	}
-	else if (ipversion == 6){
+	/*else if (ipversion == 6){
         struct libnet_in6_addr dst_ipv6;
         dst_ipv6 = nameToAddr6WithSender(s, "::2");
-        pkt = sender_send_icmp6(s, dst_ipv6, ttl, 1, 1, 1, 1, 1000);
+        pkt = sender_send_icmp6_fixrev(s, dst_ipv6, ttl, 1, 1, 1, 1, 1000);
 	}
 	str = packet_tostr(pkt);
 	logd(LOG_DEBUG, "%s\n", str);
 	free(str);
 	packet_destroy(pkt);*/
 
-	sender_destroy(s);
+
 	log_destroy();
 	exit(EXIT_SUCCESS);
 }

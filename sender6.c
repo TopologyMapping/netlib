@@ -2,7 +2,7 @@
 #include <libnet.h>
 #include <assert.h>
 
-#include "sender.h"
+#include "sender6.h"
 #include "log.h"
 
 #define SENDER_TOS 0
@@ -12,42 +12,36 @@
 /*****************************************************************************
  * static declarations
  ****************************************************************************/
-struct sender {
+struct sender6 {
 	libnet_t *ln;
-	uint32_t ip;
+	struct libnet_in6_addr ip;
 	libnet_ptag_t icmptag;
 	libnet_ptag_t iptag;
 	libnet_ptag_t tmptag;
 };
 
-static uint16_t sender_compute_icmp_payload(uint16_t icmpsum, uint16_t icmpid,
+static uint16_t sender6_compute_icmp_payload(uint16_t icmpsum, uint16_t icmpid,
 		uint16_t icmpseq);
-static struct packet * sender_make_packet(struct sender *s);
+static struct packet * sender6_make_packet(struct sender6 *s);
 
 /*****************************************************************************
  * public implementations
  ****************************************************************************/
-struct sender * sender_create(const char *device) /* {{{ */
+struct sender6 * sender6_create(const char *device) /* {{{ */
 {
 	char errbuf[LIBNET_ERRBUF_SIZE];
 	char *dev;
-	struct sender *sender;
+	struct sender6 *sender;
 
 	dev = strdup(device);
 	if(!dev) logea(__FILE__, __LINE__, NULL);
-	sender = malloc(sizeof(struct sender));
+	sender = malloc(sizeof(struct sender6));
 	if(!sender) logea(__FILE__, __LINE__, NULL);
 
-
-    sender->ln = libnet_init(LIBNET_RAW4, dev, errbuf);
+    sender->ln = libnet_init(LIBNET_RAW6, dev, errbuf);
     if(!sender->ln) goto out_libnet;
     free(dev);
-
-    struct sockaddr_in *ipv4 = malloc(sizeof(struct sockaddr_in));
-    ipv4->sin_family = AF_INET;
-    ipv4->sin_addr.s_addr = libnet_get_ipaddr4(sender->ln);
-    sender->ip = ipv4;
-
+    sender->ip = libnet_get_ipaddr6(sender->ln);
 
 	sender->icmptag = 0;
 	sender->iptag = 0;
@@ -65,15 +59,15 @@ struct sender * sender_create(const char *device) /* {{{ */
 	return NULL;
 } /* }}} */
 
-void sender_destroy(struct sender *sender) /* {{{ */
+void sender6_destroy(struct sender6 *sender) /* {{{ */
 {
 	logd(LOG_INFO, "%s ok\n", __func__);
 	libnet_destroy(sender->ln);
 	free(sender);
 } /* }}} */
 
-struct packet * sender_send_icmp(struct sender *s, /* {{{ */
-		uint32_t dst, uint8_t ttl, uint16_t ipid,
+struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
+		struct libnet_in6_addr dst, uint8_t ttl, uint16_t ipid,
 		uint16_t icmpsum, uint16_t icmpid, uint16_t icmpseq,
 		size_t padding)
 {
@@ -83,8 +77,8 @@ struct packet * sender_send_icmp(struct sender *s, /* {{{ */
 	if(!pload) logea(__FILE__, __LINE__, NULL);
 	memset(pload, 0, cnt * sizeof(uint16_t));
 
-    pload[cnt-1] = sender_compute_icmp_payload(icmpsum, icmpid, icmpseq);
-    s->icmptag = libnet_build_icmpv4_echo(ICMP_ECHO, 0,
+    pload[cnt-1] = sender6_compute_icmp_payload(icmpsum, icmpid, icmpseq);
+    s->icmptag = libnet_build_icmpv6_echo(ICMP6_ECHO, 0,
         SENDER_AUTO_CHECKSUM, icmpid, icmpseq,
         // (uint8_t *)(&payload), sizeof(uint16_t),
         (uint8_t *)pload, cnt * sizeof(uint16_t),
@@ -92,15 +86,11 @@ struct packet * sender_send_icmp(struct sender *s, /* {{{ */
     free(pload);
     if(s->icmptag == -1) goto out;
 
-    size_t sz = LIBNET_IPV4_H+LIBNET_ICMPV4_ECHO_H + cnt*sizeof(uint16_t);
-    s->iptag = libnet_build_ipv4(sz, SENDER_TOS, ipid, SENDER_FRAG,
-            ttl, IPPROTO_ICMP, SENDER_AUTO_CHECKSUM,
-            s->ip, dst, NULL, 0, s->ln, s->iptag);
+    size_t sz = LIBNET_IPV6_H+LIBNET_ICMPV6_ECHO_H + cnt*sizeof(uint16_t);
+    s->iptag = libnet_build_ipv6(0, 0, sz, 0, ttl, s->ip, dst,  NULL, 0, s->ln, s->iptag);
     if(s->iptag == -1) goto out;
 
-    if(libnet_write(s->ln) < 0) goto out;
-
-	struct packet *pkt = sender_make_packet(s);
+	struct packet *pkt = sender6_make_packet(s);
 	return pkt;
 
 	out:
@@ -113,12 +103,12 @@ struct packet * sender_send_icmp(struct sender *s, /* {{{ */
 	return NULL;
 } /* }}} */
 
-struct packet * sender_send_icmp_fixrev(struct sender *s, /* {{{ */
-		uint32_t dst, uint8_t ttl, uint16_t ipid,
+struct packet * sender6_send_icmp_fixrev(struct sender6 *s, /* {{{ */
+		struct libnet_in6_addr dst, uint8_t ttl, uint16_t ipid,
 		uint16_t icmpsum, uint16_t rev_icmpsum, uint16_t icmpseq,
 		size_t padding)
 {
-	uint16_t icmpid;
+	/*uint16_t icmpid;
 
     struct libnet_icmpv4_hdr outer;
     outer.icmp_type = ICMP_TIMXCEED;
@@ -162,28 +152,29 @@ struct packet * sender_send_icmp_fixrev(struct sender *s, /* {{{ */
 
     icmpid = ntohs(iicmp.icmp_id);
 
-    return sender_send_icmp(s, dst, ttl, ipid, icmpsum, icmpid, icmpseq, padding);
+    return sender_send_icmp(s, dst, ttl, ipid, icmpsum, icmpid, icmpseq, padding);*/
 } /* }}} */
 
 /*****************************************************************************
  * static implementations
  ****************************************************************************/
-static uint16_t sender_compute_icmp_payload(uint16_t icmpsum, /*{{{*/
+static uint16_t sender6_compute_icmp_payload(uint16_t icmpsum, /*{{{*/
 		uint16_t icmpid, uint16_t icmpseq)
 {
 	int payload;
 
-    struct libnet_icmpv4_hdr hdr;
-    hdr.icmp_type = ICMP_ECHO;
-    hdr.icmp_code = 0;
-    hdr.icmp_sum = htons(icmpsum);
-    hdr.icmp_id = htons(icmpid);
-    hdr.icmp_seq = htons(icmpseq);
-    payload = libnet_in_cksum((uint16_t *)&hdr, LIBNET_ICMPV4_ECHO_H);
+    struct libnet_icmpv6_hdr hdrv6;
+    hdrv6.icmp_type = ICMP6_ECHO;
+    hdrv6.icmp_code = 0;
+    hdrv6.icmp_sum = htons(icmpsum);
+    hdrv6.id = htons(icmpid);
+    hdrv6.seq = htons(icmpseq);
+    payload = libnet_in_cksum((uint16_t *)&hdrv6, LIBNET_ICMPV6_ECHO_H);
+
 	return (uint16_t)LIBNET_CKSUM_CARRY(payload);
 } /*}}}*/
 
-static struct packet * sender_make_packet(struct sender *s)/*{{{*/
+static struct packet * sender6_make_packet(struct sender6 *s)/*{{{*/
 {
 	libnet_t *ln = s->ln;
 	uint8_t *ipbuf = libnet_getpbuf(ln, s->iptag);
@@ -198,4 +189,3 @@ static struct packet * sender_make_packet(struct sender *s)/*{{{*/
 	free(buf);
 	return pkt;
 }/*}}}*/
-
