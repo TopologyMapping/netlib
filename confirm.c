@@ -73,7 +73,7 @@ struct confirm {
 	struct dlist *evlist;
 	pthread_cond_t event_cond;
 	struct sender *sender;
-    struct sender6 *sender6;
+	struct sender6 *sender6;
 	struct pavl_table *events;
 	struct pavl_table *queries;
 };
@@ -301,7 +301,7 @@ static int confirm_recv_parse(const struct packet *pkt, struct sockaddr_storage 
 		if(pkt->ip->ip_p != IPPROTO_ICMP) return 0;
 
 		if(pkt->icmp->icmp_type != ICMP_ECHOREPLY &&
-			pkt->icmp->icmp_type != ICMP_TIMXCEED) {
+				pkt->icmp->icmp_type != ICMP_TIMXCEED) {
 			return 0;
 		}
 
@@ -330,7 +330,7 @@ static int confirm_recv_parse(const struct packet *pkt, struct sockaddr_storage 
 			revsum = ntohs(pkt->icmp->icmp_sum);
 			data = ntohs(ricmp->icmp_seq);
 		}
-    }
+	}
 	else if(pkt->ipversion == 6){
 
 		if(pkt->icmpv6->icmp_type != ICMP_ECHOREPLY &&
@@ -548,7 +548,7 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 			struct libnet_in6_addr ipv6_dst;
 			memcpy(&ipv6_dst, &(((struct sockaddr_in6 *) &query->dst)->sin6_addr), sizeof(struct libnet_in6_addr));
 			pkt = NULL;
-            /*pkt = sender6_send_icmp_fixrev(conf->sender6, ipv6_dst,
+			/*pkt = sender6_send_icmp_fixrev(conf->sender6, ipv6_dst,
                     query->ttl,
                     query->ipid, id2checksum[query->flowid],
                     revsum, data, query->padding);*/
@@ -570,10 +570,10 @@ static void event_run_timeout(struct confirm *conf, struct event *ev)
 
 	if (query->ip.ss_family == AF_INET){
 
-        struct sockaddr_in ipv4;
-        ipv4.sin_family = AF_INET;
-        ipv4.sin_addr.s_addr = UINT_MAX;
-        query->ip = *((struct sockaddr_storage *) &ipv4);
+		struct sockaddr_in ipv4;
+		ipv4.sin_family = AF_INET;
+		ipv4.sin_addr.s_addr = UINT_MAX;
+		query->ip = *((struct sockaddr_storage *) &ipv4);
 	}
 	else {
 		struct sockaddr_in6 ipv6;

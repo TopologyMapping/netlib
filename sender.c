@@ -38,7 +38,7 @@ struct sender * sender_create(const char *device) /* {{{ */
 	sender = malloc(sizeof(struct sender));
 	if(!sender) logea(__FILE__, __LINE__, NULL);
 
-    sender->ln = libnet_init(LIBNET_RAW4, dev, errbuf);
+	sender->ln = libnet_init(LIBNET_RAW4, dev, errbuf);
 	if(!sender->ln) goto out_libnet;
 	free(dev);
 
@@ -83,10 +83,10 @@ struct packet * sender_send_icmp(struct sender *s, /* {{{ */
 
 	pload[cnt-1] = sender_compute_icmp_payload(icmpsum, icmpid, icmpseq);
 	s->icmptag = libnet_build_icmpv4_echo(ICMP_ECHO, 0,
-		SENDER_AUTO_CHECKSUM, icmpid, icmpseq,
-		// (uint8_t *)(&payload), sizeof(uint16_t),
-		(uint8_t *)pload, cnt * sizeof(uint16_t),
-		s->ln, s->icmptag);
+			SENDER_AUTO_CHECKSUM, icmpid, icmpseq,
+			// (uint8_t *)(&payload), sizeof(uint16_t),
+			(uint8_t *)pload, cnt * sizeof(uint16_t),
+			s->ln, s->icmptag);
 	free(pload);
 	if(s->icmptag == -1) goto out;
 
@@ -116,12 +116,10 @@ struct packet * sender_send_icmp_fixrev(struct sender *s, /* {{{ */
 		uint16_t icmpsum, uint16_t rev_icmpsum, uint16_t icmpseq,
 		size_t padding)
 {
-	uint16_t icmpid;
-
 	struct libnet_icmpv4_hdr outer;
 	outer.icmp_type = ICMP_TIMXCEED;
 	outer.icmp_code = ICMP_TIMXCEED_INTRANS;
-    outer.icmp_sum = htons(rev_icmpsum);
+	outer.icmp_sum = htons(rev_icmpsum);
 	outer.hun.gateway = 0;
 
 	struct libnet_ipv4_hdr iip;
@@ -151,14 +149,14 @@ struct packet * sender_send_icmp_fixrev(struct sender *s, /* {{{ */
 	memcpy(buf, &outer, LIBNET_ICMPV4_ECHO_H);
 	memcpy(buf + LIBNET_ICMPV4_ECHO_H, &iip, LIBNET_IPV4_H);
 	memcpy(buf + LIBNET_ICMPV4_ECHO_H + LIBNET_IPV4_H, &iicmp,
-	        LIBNET_ICMPV4_ECHO_H);
+					LIBNET_ICMPV4_ECHO_H);
 	chksum = libnet_in_cksum((uint16_t *)buf, sizeof(buf));
 	iicmp.icmp_id = LIBNET_CKSUM_CARRY(chksum);
 
 	// logd(LOG_DEBUG, "IP chksum: 0x%04x\n", ntohs(iip.ip_sum));
 	// logd(LOG_DEBUG, "ICMP chksum: 0x%04x\n", ntohs(iicmp.icmp_id));
 
-	icmpid = ntohs(iicmp.icmp_id);
+	uint16_t icmpid = ntohs(iicmp.icmp_id);
 
 	return sender_send_icmp(s, dst, ttl, ipid, icmpsum, icmpid, icmpseq, padding);
 } /* }}} */
@@ -169,15 +167,13 @@ struct packet * sender_send_icmp_fixrev(struct sender *s, /* {{{ */
 static uint16_t sender_compute_icmp_payload(uint16_t icmpsum, /*{{{*/
 		uint16_t icmpid, uint16_t icmpseq)
 {
-	int payload;
-
 	struct libnet_icmpv4_hdr hdr;
 	hdr.icmp_type = ICMP_ECHO;
 	hdr.icmp_code = 0;
 	hdr.icmp_sum = htons(icmpsum);
 	hdr.icmp_id = htons(icmpid);
 	hdr.icmp_seq = htons(icmpseq);
-	payload = libnet_in_cksum((uint16_t *)&hdr, LIBNET_ICMPV4_ECHO_H);
+	int payload = libnet_in_cksum((uint16_t *)&hdr, LIBNET_ICMPV4_ECHO_H);
 	return (uint16_t)LIBNET_CKSUM_CARRY(payload);
 } /*}}}*/
 
