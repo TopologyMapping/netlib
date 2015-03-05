@@ -38,10 +38,10 @@ struct sender6 * sender6_create(const char *device) /* {{{ */
 	sender = malloc(sizeof(struct sender6));
 	if(!sender) logea(__FILE__, __LINE__, NULL);
 
-    sender->ln = libnet_init(LIBNET_RAW6, dev, errbuf);
-    if(!sender->ln) goto out_libnet;
-    free(dev);
-    sender->ip = libnet_get_ipaddr6(sender->ln);
+	sender->ln = libnet_init(LIBNET_RAW6, dev, errbuf);
+	if(!sender->ln) goto out_libnet;
+	free(dev);
+	sender->ip = libnet_get_ipaddr6(sender->ln);
 
 	sender->icmptag = 0;
 	sender->iptag = 0;
@@ -77,18 +77,18 @@ struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 	if(!pload) logea(__FILE__, __LINE__, NULL);
 	memset(pload, 0, cnt * sizeof(uint16_t));
 
-    pload[cnt-1] = sender6_compute_icmp_payload(icmpsum, icmpid, icmpseq);
-    s->icmptag = libnet_build_icmpv6_echo(ICMP6_ECHO, 0,
-        SENDER_AUTO_CHECKSUM, icmpid, icmpseq,
-        // (uint8_t *)(&payload), sizeof(uint16_t),
-        (uint8_t *)pload, cnt * sizeof(uint16_t),
-        s->ln, s->icmptag);
-    free(pload);
-    if(s->icmptag == -1) goto out;
+	pload[cnt-1] = sender6_compute_icmp_payload(icmpsum, icmpid, icmpseq);
+	s->icmptag = libnet_build_icmpv6_echo(ICMP6_ECHO, 0,
+		SENDER_AUTO_CHECKSUM, icmpid, icmpseq,
+		// (uint8_t *)(&payload), sizeof(uint16_t),
+		(uint8_t *)pload, cnt * sizeof(uint16_t),
+		s->ln, s->icmptag);
+	free(pload);
+	if(s->icmptag == -1) goto out;
 
-    size_t sz = LIBNET_IPV6_H+LIBNET_ICMPV6_ECHO_H + cnt*sizeof(uint16_t);
-    s->iptag = libnet_build_ipv6(0, 0, sz, 0, ttl, s->ip, dst,  NULL, 0, s->ln, s->iptag);
-    if(s->iptag == -1) goto out;
+	size_t sz = LIBNET_IPV6_H+LIBNET_ICMPV6_ECHO_H + cnt*sizeof(uint16_t);
+	s->iptag = libnet_build_ipv6(0, 0, sz, 0, ttl, s->ip, dst,  NULL, 0, s->ln, s->iptag);
+	if(s->iptag == -1) goto out;
 
 	struct packet *pkt = sender6_make_packet(s);
 	return pkt;
@@ -163,13 +163,13 @@ static uint16_t sender6_compute_icmp_payload(uint16_t icmpsum, /*{{{*/
 {
 	int payload;
 
-    struct libnet_icmpv6_hdr hdrv6;
-    hdrv6.icmp_type = ICMP6_ECHO;
-    hdrv6.icmp_code = 0;
-    hdrv6.icmp_sum = htons(icmpsum);
-    hdrv6.id = htons(icmpid);
-    hdrv6.seq = htons(icmpseq);
-    payload = libnet_in_cksum((uint16_t *)&hdrv6, LIBNET_ICMPV6_ECHO_H);
+	struct libnet_icmpv6_hdr hdrv6;
+	hdrv6.icmp_type = ICMP6_ECHO;
+	hdrv6.icmp_code = 0;
+	hdrv6.icmp_sum = htons(icmpsum);
+	hdrv6.id = htons(icmpid);
+	hdrv6.seq = htons(icmpseq);
+	payload = libnet_in_cksum((uint16_t *)&hdrv6, LIBNET_ICMPV6_ECHO_H);
 
 	return (uint16_t)LIBNET_CKSUM_CARRY(payload);
 } /*}}}*/

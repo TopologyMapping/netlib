@@ -38,16 +38,14 @@ struct sender * sender_create(const char *device) /* {{{ */
 	sender = malloc(sizeof(struct sender));
 	if(!sender) logea(__FILE__, __LINE__, NULL);
 
-
     sender->ln = libnet_init(LIBNET_RAW4, dev, errbuf);
-    if(!sender->ln) goto out_libnet;
-    free(dev);
+	if(!sender->ln) goto out_libnet;
+	free(dev);
 
-    struct sockaddr_in *ipv4 = malloc(sizeof(struct sockaddr_in));
-    ipv4->sin_family = AF_INET;
-    ipv4->sin_addr.s_addr = libnet_get_ipaddr4(sender->ln);
-    sender->ip = ipv4;
-
+	struct sockaddr_in *ipv4 = malloc(sizeof(struct sockaddr_in));
+	ipv4->sin_family = AF_INET;
+	ipv4->sin_addr.s_addr = libnet_get_ipaddr4(sender->ln);
+	sender->ip = ipv4;
 
 	sender->icmptag = 0;
 	sender->iptag = 0;
@@ -83,22 +81,22 @@ struct packet * sender_send_icmp(struct sender *s, /* {{{ */
 	if(!pload) logea(__FILE__, __LINE__, NULL);
 	memset(pload, 0, cnt * sizeof(uint16_t));
 
-    pload[cnt-1] = sender_compute_icmp_payload(icmpsum, icmpid, icmpseq);
-    s->icmptag = libnet_build_icmpv4_echo(ICMP_ECHO, 0,
-        SENDER_AUTO_CHECKSUM, icmpid, icmpseq,
-        // (uint8_t *)(&payload), sizeof(uint16_t),
-        (uint8_t *)pload, cnt * sizeof(uint16_t),
-        s->ln, s->icmptag);
-    free(pload);
-    if(s->icmptag == -1) goto out;
+	pload[cnt-1] = sender_compute_icmp_payload(icmpsum, icmpid, icmpseq);
+	s->icmptag = libnet_build_icmpv4_echo(ICMP_ECHO, 0,
+		SENDER_AUTO_CHECKSUM, icmpid, icmpseq,
+		// (uint8_t *)(&payload), sizeof(uint16_t),
+		(uint8_t *)pload, cnt * sizeof(uint16_t),
+		s->ln, s->icmptag);
+	free(pload);
+	if(s->icmptag == -1) goto out;
 
-    size_t sz = LIBNET_IPV4_H+LIBNET_ICMPV4_ECHO_H + cnt*sizeof(uint16_t);
-    s->iptag = libnet_build_ipv4(sz, SENDER_TOS, ipid, SENDER_FRAG,
-            ttl, IPPROTO_ICMP, SENDER_AUTO_CHECKSUM,
-            s->ip, dst, NULL, 0, s->ln, s->iptag);
-    if(s->iptag == -1) goto out;
+	size_t sz = LIBNET_IPV4_H+LIBNET_ICMPV4_ECHO_H + cnt*sizeof(uint16_t);
+	s->iptag = libnet_build_ipv4(sz, SENDER_TOS, ipid, SENDER_FRAG,
+			ttl, IPPROTO_ICMP, SENDER_AUTO_CHECKSUM,
+			s->ip, dst, NULL, 0, s->ln, s->iptag);
+	if(s->iptag == -1) goto out;
 
-    if(libnet_write(s->ln) < 0) goto out;
+	if(libnet_write(s->ln) < 0) goto out;
 
 	struct packet *pkt = sender_make_packet(s);
 	return pkt;
@@ -120,49 +118,49 @@ struct packet * sender_send_icmp_fixrev(struct sender *s, /* {{{ */
 {
 	uint16_t icmpid;
 
-    struct libnet_icmpv4_hdr outer;
-    outer.icmp_type = ICMP_TIMXCEED;
-    outer.icmp_code = ICMP_TIMXCEED_INTRANS;
+	struct libnet_icmpv4_hdr outer;
+	outer.icmp_type = ICMP_TIMXCEED;
+	outer.icmp_code = ICMP_TIMXCEED_INTRANS;
     outer.icmp_sum = htons(rev_icmpsum);
-    outer.hun.gateway = 0;
+	outer.hun.gateway = 0;
 
-    struct libnet_ipv4_hdr iip;
-    iip.ip_hl = 5;
-    iip.ip_v = 4;
-    iip.ip_tos = SENDER_TOS;
-    iip.ip_len = htons(LIBNET_IPV4_H + LIBNET_ICMPV4_ECHO_H + 2);
-    iip.ip_id = htons(ipid);
-    iip.ip_off = SENDER_FRAG;
-    iip.ip_ttl = 1;
-    iip.ip_p = IPPROTO_ICMP;
-    iip.ip_sum = 0;
-    iip.ip_src.s_addr = s->ip;
-    iip.ip_dst.s_addr = dst;
-    int chksum = libnet_in_cksum((uint16_t *)&iip, LIBNET_IPV4_H);
-    iip.ip_sum = LIBNET_CKSUM_CARRY(chksum);
+	struct libnet_ipv4_hdr iip;
+	iip.ip_hl = 5;
+	iip.ip_v = 4;
+	iip.ip_tos = SENDER_TOS;
+	iip.ip_len = htons(LIBNET_IPV4_H + LIBNET_ICMPV4_ECHO_H + 2);
+	iip.ip_id = htons(ipid);
+	iip.ip_off = SENDER_FRAG;
+	iip.ip_ttl = 1;
+	iip.ip_p = IPPROTO_ICMP;
+	iip.ip_sum = 0;
+	iip.ip_src.s_addr = s->ip;
+	iip.ip_dst.s_addr = dst;
+	int chksum = libnet_in_cksum((uint16_t *)&iip, LIBNET_IPV4_H);
+	iip.ip_sum = LIBNET_CKSUM_CARRY(chksum);
 
-    struct libnet_icmpv4_hdr iicmp;
-    iicmp.icmp_type = ICMP_ECHO;
-    iicmp.icmp_code = 0;
-    iicmp.icmp_sum = htons(icmpsum);
-    iicmp.icmp_id = 0;
-    iicmp.icmp_seq = htons(icmpseq);
+	struct libnet_icmpv4_hdr iicmp;
+	iicmp.icmp_type = ICMP_ECHO;
+	iicmp.icmp_code = 0;
+	iicmp.icmp_sum = htons(icmpsum);
+	iicmp.icmp_id = 0;
+	iicmp.icmp_seq = htons(icmpseq);
 
-    assert(LIBNET_ICMPV4_TIMXCEED_H == LIBNET_ICMPV4_ECHO_H);
-    uint8_t buf[LIBNET_IPV4_H + 2*LIBNET_ICMPV4_ECHO_H];
-    memcpy(buf, &outer, LIBNET_ICMPV4_ECHO_H);
-    memcpy(buf + LIBNET_ICMPV4_ECHO_H, &iip, LIBNET_IPV4_H);
-    memcpy(buf + LIBNET_ICMPV4_ECHO_H + LIBNET_IPV4_H, &iicmp,
-            LIBNET_ICMPV4_ECHO_H);
-    chksum = libnet_in_cksum((uint16_t *)buf, sizeof(buf));
-    iicmp.icmp_id = LIBNET_CKSUM_CARRY(chksum);
+	assert(LIBNET_ICMPV4_TIMXCEED_H == LIBNET_ICMPV4_ECHO_H);
+	uint8_t buf[LIBNET_IPV4_H + 2*LIBNET_ICMPV4_ECHO_H];
+	memcpy(buf, &outer, LIBNET_ICMPV4_ECHO_H);
+	memcpy(buf + LIBNET_ICMPV4_ECHO_H, &iip, LIBNET_IPV4_H);
+	memcpy(buf + LIBNET_ICMPV4_ECHO_H + LIBNET_IPV4_H, &iicmp,
+	        LIBNET_ICMPV4_ECHO_H);
+	chksum = libnet_in_cksum((uint16_t *)buf, sizeof(buf));
+	iicmp.icmp_id = LIBNET_CKSUM_CARRY(chksum);
 
-    // logd(LOG_DEBUG, "IP chksum: 0x%04x\n", ntohs(iip.ip_sum));
-    // logd(LOG_DEBUG, "ICMP chksum: 0x%04x\n", ntohs(iicmp.icmp_id));
+	// logd(LOG_DEBUG, "IP chksum: 0x%04x\n", ntohs(iip.ip_sum));
+	// logd(LOG_DEBUG, "ICMP chksum: 0x%04x\n", ntohs(iicmp.icmp_id));
 
-    icmpid = ntohs(iicmp.icmp_id);
+	icmpid = ntohs(iicmp.icmp_id);
 
-    return sender_send_icmp(s, dst, ttl, ipid, icmpsum, icmpid, icmpseq, padding);
+	return sender_send_icmp(s, dst, ttl, ipid, icmpsum, icmpid, icmpseq, padding);
 } /* }}} */
 
 /*****************************************************************************
@@ -173,13 +171,13 @@ static uint16_t sender_compute_icmp_payload(uint16_t icmpsum, /*{{{*/
 {
 	int payload;
 
-    struct libnet_icmpv4_hdr hdr;
-    hdr.icmp_type = ICMP_ECHO;
-    hdr.icmp_code = 0;
-    hdr.icmp_sum = htons(icmpsum);
-    hdr.icmp_id = htons(icmpid);
-    hdr.icmp_seq = htons(icmpseq);
-    payload = libnet_in_cksum((uint16_t *)&hdr, LIBNET_ICMPV4_ECHO_H);
+	struct libnet_icmpv4_hdr hdr;
+	hdr.icmp_type = ICMP_ECHO;
+	hdr.icmp_code = 0;
+	hdr.icmp_sum = htons(icmpsum);
+	hdr.icmp_id = htons(icmpid);
+	hdr.icmp_seq = htons(icmpseq);
+	payload = libnet_in_cksum((uint16_t *)&hdr, LIBNET_ICMPV4_ECHO_H);
 	return (uint16_t)LIBNET_CKSUM_CARRY(payload);
 } /*}}}*/
 

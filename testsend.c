@@ -27,13 +27,13 @@ int main(int argc, char **argv)
 
 	char *iface = argv[1];
 	int ttl = atoi(argv[2]);
-    int ipversion;// ipversion = 4 to IPv4; ipversion = 6 to IPv6;
-    if(argc == 4){
-        ipversion = atoi(argv[3]);
-    }
-    else{
-        ipversion = 4;
-    }
+	int ipversion;// ipversion = 4 to IPv4; ipversion = 6 to IPv6;
+	if(argc == 4){
+		ipversion = atoi(argv[3]);
+	}
+	else{
+		ipversion = 4;
+	}
 
 	/*char *iface = "eth0";
 	int ttl = 20;
@@ -45,18 +45,18 @@ int main(int argc, char **argv)
 	struct packet *pkt;
 	struct sender *s;
 	if (ipversion == 4){
-        s = sender_create(iface);
-        pkt = sender_send_icmp(s, 2, ttl, 1, 1, 1, 1, 1000);
-        sender_destroy(s);
+		s = sender_create(iface);
+		pkt = sender_send_icmp(s, 2, ttl, 1, 1, 1, 1, 1000);
+		sender_destroy(s);
 	}
 	else if (ipversion == 6){
-        struct sender6 *s6 = sender6_create(iface);
-        struct libnet_in6_addr ipv6_dst;
-        struct sockaddr_in6 sa;
-        inet_pton(AF_INET6, "::2", &(sa.sin6_addr));
-        memcpy(&ipv6_dst, &sa.sin6_addr, sizeof(struct libnet_in6_addr));
-        pkt = sender6_send_icmp(s6, ipv6_dst, ttl, 1, 1, 1, 1, 1000);
-        sender6_destroy(s6);
+		struct sender6 *s6 = sender6_create(iface);
+		struct libnet_in6_addr ipv6_dst;
+		struct sockaddr_in6 sa;
+		inet_pton(AF_INET6, "::2", &(sa.sin6_addr));
+		memcpy(&ipv6_dst, &sa.sin6_addr, sizeof(struct libnet_in6_addr));
+		pkt = sender6_send_icmp(s6, ipv6_dst, ttl, 1, 1, 1, 1, 1000);
+		sender6_destroy(s6);
 	}
 
 	char *str = packet_tostr(pkt);
@@ -67,7 +67,7 @@ int main(int argc, char **argv)
 	sleep(2);
 
 	if (ipversion == 4){
-        pkt = sender_send_icmp_fixrev(s, 2, ttl, 1, 1, 1, 1, 1000);
+		pkt = sender_send_icmp_fixrev(s, 2, ttl, 1, 1, 1, 1, 1000);
 	}
 	/*else if (ipversion == 6){
         struct libnet_in6_addr dst_ipv6;

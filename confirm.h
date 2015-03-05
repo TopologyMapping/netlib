@@ -29,7 +29,7 @@ struct confirm_query {/*{{{*/
 
 	/* answer fields. ip unset and trynum == ntries+1 if no answer: */
 	int trynum;
-    struct sockaddr_storage ip;
+	struct sockaddr_storage ip;
 
 	struct timespec probetime;
 	struct timespec timeout;

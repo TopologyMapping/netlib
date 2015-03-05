@@ -6,7 +6,7 @@
 #include <libnet.h>
 
 struct ipversion_toread{
-    uint8_t ip_hl:4,ip_v:4;
+	uint8_t ip_hl:4,ip_v:4;
 };
 
 struct packet {/*{{{*/
@@ -14,7 +14,7 @@ struct packet {/*{{{*/
 	uint8_t *buf;
 	size_t buflen;
 
-    uint8_t ipversion; // ipType = 4 to IPv4; ipType = 6 to IPv6;
+	uint8_t ipversion;
 	struct libnet_ipv4_hdr *ip;
 	struct libnet_ipv6_hdr *ipv6;
 
