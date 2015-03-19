@@ -11,7 +11,7 @@
 
 struct confirm_query {/*{{{*/
 	/* query fields. must be filled by the caller: */
-	uint32_t dst;
+	struct sockaddr_storage dst;
 	uint8_t ttl;
 	uint16_t ipid;
 	/* =ipid is not used to identify probes (in =confirm_query_cmp) as it
@@ -28,8 +28,8 @@ struct confirm_query {/*{{{*/
 	void *data;
 
 	/* answer fields. ip unset and trynum == ntries+1 if no answer: */
-	uint32_t ip;
 	int trynum;
+	struct sockaddr_storage ip;
 
 	struct timespec probetime;
 	struct timespec timeout;
@@ -51,10 +51,11 @@ void confirm_destroy(struct confirm *confirm);
 
 void confirm_query(struct confirm *confirm, struct confirm_query *query);
 
-struct confirm_query * confirm_query_create(uint32_t dst, uint8_t ttl,
+struct confirm_query * confirm_query_create(struct sockaddr_storage dst, uint8_t ttl,
 		uint16_t ipid, uint16_t icmpid,
 		uint8_t flowid, uint8_t revflow,
 		confirm_query_cb cb);
+
 
 void confirm_query_destroy(struct confirm_query *query);
 

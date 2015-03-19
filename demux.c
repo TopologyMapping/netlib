@@ -278,7 +278,7 @@ static int demux_check_iface(const char *iface, pcap_if_t *pcapif) /* {{{ */
 	if(strcmp(pcapif->name, iface) != 0) return 0;
 	for(paddr = pcapif->addresses; paddr; paddr = paddr->next) {
 		struct sockaddr *saddr = paddr->addr;
-		if(saddr->sa_family == AF_INET) return 1;
+		if((saddr->sa_family == AF_INET)||(saddr->sa_family == AF_INET6)) return 1;
 	}
 	return 0;
 } /* }}} */

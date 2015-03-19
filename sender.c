@@ -37,10 +37,16 @@ struct sender * sender_create(const char *device) /* {{{ */
 	if(!dev) logea(__FILE__, __LINE__, NULL);
 	sender = malloc(sizeof(struct sender));
 	if(!sender) logea(__FILE__, __LINE__, NULL);
+
 	sender->ln = libnet_init(LIBNET_RAW4, dev, errbuf);
 	if(!sender->ln) goto out_libnet;
 	free(dev);
-	sender->ip = libnet_get_ipaddr4(sender->ln);
+
+	struct sockaddr_in *ipv4 = malloc(sizeof(struct sockaddr_in));
+	ipv4->sin_family = AF_INET;
+	ipv4->sin_addr.s_addr = libnet_get_ipaddr4(sender->ln);
+	sender->ip = ipv4;
+
 	sender->icmptag = 0;
 	sender->iptag = 0;
 	sender->tmptag = 0;
@@ -74,8 +80,8 @@ struct packet * sender_send_icmp(struct sender *s, /* {{{ */
 	uint16_t *pload = malloc(cnt * sizeof(uint16_t));
 	if(!pload) logea(__FILE__, __LINE__, NULL);
 	memset(pload, 0, cnt * sizeof(uint16_t));
-	pload[cnt-1] = sender_compute_icmp_payload(icmpsum, icmpid, icmpseq);
 
+	pload[cnt-1] = sender_compute_icmp_payload(icmpsum, icmpid, icmpseq);
 	s->icmptag = libnet_build_icmpv4_echo(ICMP_ECHO, 0,
 			SENDER_AUTO_CHECKSUM, icmpid, icmpseq,
 			// (uint8_t *)(&payload), sizeof(uint16_t),
@@ -91,6 +97,7 @@ struct packet * sender_send_icmp(struct sender *s, /* {{{ */
 	if(s->iptag == -1) goto out;
 
 	if(libnet_write(s->ln) < 0) goto out;
+
 	struct packet *pkt = sender_make_packet(s);
 	return pkt;
 
@@ -141,8 +148,7 @@ struct packet * sender_send_icmp_fixrev(struct sender *s, /* {{{ */
 	uint8_t buf[LIBNET_IPV4_H + 2*LIBNET_ICMPV4_ECHO_H];
 	memcpy(buf, &outer, LIBNET_ICMPV4_ECHO_H);
 	memcpy(buf + LIBNET_ICMPV4_ECHO_H, &iip, LIBNET_IPV4_H);
-	memcpy(buf + LIBNET_ICMPV4_ECHO_H + LIBNET_IPV4_H, &iicmp,
-			LIBNET_ICMPV4_ECHO_H);
+	memcpy(buf + LIBNET_ICMPV4_ECHO_H + LIBNET_IPV4_H, &iicmp, LIBNET_ICMPV4_ECHO_H);
 	chksum = libnet_in_cksum((uint16_t *)buf, sizeof(buf));
 	iicmp.icmp_id = LIBNET_CKSUM_CARRY(chksum);
 
@@ -150,8 +156,8 @@ struct packet * sender_send_icmp_fixrev(struct sender *s, /* {{{ */
 	// logd(LOG_DEBUG, "ICMP chksum: 0x%04x\n", ntohs(iicmp.icmp_id));
 
 	uint16_t icmpid = ntohs(iicmp.icmp_id);
-	return sender_send_icmp(s, dst, ttl, ipid, icmpsum, icmpid, icmpseq,
-			padding);
+
+	return sender_send_icmp(s, dst, ttl, ipid, icmpsum, icmpid, icmpseq, padding);
 } /* }}} */
 
 /*****************************************************************************
@@ -185,3 +191,4 @@ static struct packet * sender_make_packet(struct sender *s)/*{{{*/
 	free(buf);
 	return pkt;
 }/*}}}*/
+
