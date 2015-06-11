@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <libnet.h>
 #include <assert.h>
+#include <limits.h>
 
 #include "sender6.h"
 #include "log.h"
@@ -42,7 +43,6 @@ struct sender6 * sender6_create(const char *device) /* {{{ */
 	if(!sender->ln) goto out_libnet;
 	free(dev);
 	sender->ip = libnet_get_ipaddr6(sender->ln);
-
 	sender->icmptag = 0;
 	sender->iptag = 0;
 	sender->tmptag = 0;
@@ -67,7 +67,7 @@ void sender6_destroy(struct sender6 *sender) /* {{{ */
 } /* }}} */
 
 struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
-		struct libnet_in6_addr dst, uint8_t ttl, uint16_t ipid,
+		struct libnet_in6_addr dst, uint8_t ttl,
 		uint16_t icmpsum, uint16_t icmpid, uint16_t icmpseq,
 		size_t padding)
 {
@@ -78,17 +78,21 @@ struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 	memset(pload, 0, cnt * sizeof(uint16_t));
 
 	pload[cnt-1] = sender6_compute_icmp_payload(icmpsum, icmpid, icmpseq);
+
 	s->icmptag = libnet_build_icmpv6_echo(ICMP6_ECHO, 0,
 		SENDER_AUTO_CHECKSUM, icmpid, icmpseq,
-		// (uint8_t *)(&payload), sizeof(uint16_t),
 		(uint8_t *)pload, cnt * sizeof(uint16_t),
 		s->ln, s->icmptag);
+
 	free(pload);
 	if(s->icmptag == -1) goto out;
 
-	size_t sz = LIBNET_IPV6_H+LIBNET_ICMPV6_ECHO_H + cnt*sizeof(uint16_t);
-	s->iptag = libnet_build_ipv6(0, 0, sz, 0, ttl, s->ip, dst,  NULL, 0, s->ln, s->iptag);
+	size_t sz = LIBNET_ICMPV6_ECHO_H + cnt*sizeof(uint16_t);
+	s->iptag = libnet_build_ipv6(0, 0, sz, IPPROTO_ICMP6, ttl, s->ip, dst,  NULL, 0, s->ln, s->iptag);
+
 	if(s->iptag == -1) goto out;
+
+	if(libnet_write(s->ln) < 0) goto out;
 
 	struct packet *pkt = sender6_make_packet(s);
 	return pkt;
