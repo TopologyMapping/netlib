@@ -17,6 +17,7 @@
 #include "sender.h"
 #include "sender6.h"
 #include "timespec.h"
+#include "packet.h"
 #include "confirm.h"
 
 #define EVENT_QUERY 1
@@ -112,7 +113,6 @@ static uint16_t id2checksum[] = {
 /*****************************************************************************
  * declarations
  ****************************************************************************/
-
 struct confirm {
 	pthread_t thread;
 	pthread_mutex_t evlist_mut;
@@ -184,11 +184,11 @@ struct confirm * confirm_create(const char *device) /* {{{ */
 	if(!confirm->evlist) goto out_cond;
 
 	confirm->sender = sender_create(device);
-	confirm->sender6 = sender6_create(device);
 	if(!confirm->sender) goto out_evlist;
-	if(!confirm->sender6) goto out_evlist;
+	confirm->sender6 = sender6_create(device);
+	if(!confirm->sender6) goto out_sender;
 	if(pthread_create(&confirm->thread, NULL, confirm_thread, confirm)) {
-		goto out_sender;
+		goto out_sender6;
 	}
 
 	demux_listener_add(confirm_recv, confirm);
@@ -196,10 +196,12 @@ struct confirm * confirm_create(const char *device) /* {{{ */
 	logd(LOG_INFO, "%s dev=%s ok\n", __func__, device);
 	return confirm;
 
+	out_sender6:
+	loge(LOG_DEBUG, __FILE__, __LINE__);
+	sender6_destroy(confirm->sender6);
 	out_sender:
 	loge(LOG_DEBUG, __FILE__, __LINE__);
 	sender_destroy(confirm->sender);
-	sender6_destroy(confirm->sender6);
 	out_evlist:
 	loge(LOG_DEBUG, __FILE__, __LINE__);
 	dlist_destroy(confirm->evlist, NULL);
@@ -324,7 +326,7 @@ static int confirm_recv(const struct packet *pkt, void *vconfirm) /* {{{ */
 	if(!confirm_pkt_parse(pkt, &dst, &ttl, &icmpid, &flowid, &revflow, &ip)) {
 		return 1;
 	}
-	query = confirm_query_create(dst, ttl, 0, icmpid, flowid, revflow, NULL);
+	query = confirm_query_create(&dst, ttl, 0, icmpid, flowid, revflow, NULL);
 	query->ip = ip;
 
 	query->response = packet_clone(pkt);
@@ -336,8 +338,8 @@ static int confirm_recv(const struct packet *pkt, void *vconfirm) /* {{{ */
 } /* }}} */
 
 int confirm_pkt_parse(const struct packet *pkt, struct sockaddr_storage *dst, /*{{{*/
-	       uint8_t *ttl, uint16_t *icmpid,
-	       uint8_t *flowid, uint8_t *revflow, struct sockaddr_storage *ip)
+		uint8_t *ttl, uint16_t *icmpid,
+		uint8_t *flowid, uint8_t *revflow, struct sockaddr_storage *ip)
 {
 	uint16_t data;
 	uint16_t revsum;
@@ -533,9 +535,11 @@ static void event_run_query(struct confirm *conf, struct event *ev)
 {
 	struct confirm_query *query = ev->query;
 	assert(ev->type == EVENT_QUERY);
-	char addr[INET6_ADDRSTRLEN];
-	if(!inet_ntop(query->dst.ss_family, &(((struct sockaddr_in *) &query->dst)->sin_addr.s_addr), addr, INET6_ADDRSTRLEN)) goto out;
-	logd(LOG_EXTRA, "query dst=%s ttl=%d flowid=%d\n", addr, query->ttl, query->flowid);
+
+	char *addr = sockaddr_tostr(&(query->dst));
+	logd(LOG_EXTRA, "query dst=%s ttl=%d flowid=%d\n", addr, query->ttl,
+			query->flowid);
+	free(addr);
 
 	if(query->ntries == 0) goto out_noconfirm;
 	if(pavl_find(conf->queries, query)) goto out_dup;
@@ -572,48 +576,50 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 	 * need to keep flowids fixed. */
 
 	struct packet *pkt;
-	if(query->icmpid) {
+	if(query->icmpid) { /* if icmpid == 0 then we fix the reverse flowid */
 		data = confirm_data_pack(query->ttl, query->flowid, 0);
-		if(query->ip.ss_family == AF_INET){
-			pkt = sender_send_icmp(conf->sender, (((struct sockaddr_in *) &query->dst)->sin_addr.s_addr),
-							query->ttl,
-							query->ipid, id2checksum[query->flowid],
-							query->icmpid, data, query->padding);
+		if(query->dst.ss_family == AF_INET) {
+			struct sockaddr_in *ip4 = (struct sockaddr_in *)&(query->dst);
+			pkt = sender_send_icmp(conf->sender,
+				ip4->sin_addr.s_addr,
+				query->ttl,
+				query->ipid, id2checksum[query->flowid],
+				query->icmpid, data, query->padding);
 		}
 		else {
 			struct libnet_in6_addr ipv6_dst;
 			memcpy(&ipv6_dst, &(((struct sockaddr_in6 *) &query->dst)->sin6_addr), sizeof(struct libnet_in6_addr));
 			pkt = sender6_send_icmp(conf->sender6, ipv6_dst,
-							query->ttl,
-							id2checksum[query->flowid],
-							query->icmpid, data, query->padding);
+					query->ttl,
+					id2checksum[query->flowid],
+					query->icmpid, data, query->padding);
 		}
 	} else {
 		data = confirm_data_pack(query->ttl, query->flowid, 1);
 		uint16_t revsum = id2checksum[query->revflow];
 		if(query->ip.ss_family == AF_INET){
-			pkt = sender_send_icmp_fixrev(conf->sender, (((struct sockaddr_in *) &query->dst)->sin_addr.s_addr),
-							query->ttl,
-							query->ipid, id2checksum[query->flowid],
-							revsum, data, query->padding);
+			struct sockaddr_in *ip4 = (struct sockaddr_in *)&(query->dst);
+			pkt = sender_send_icmp_fixrev(conf->sender,
+					ip4->sin_addr.s_addr,
+					query->ttl,
+					query->ipid, id2checksum[query->flowid],
+					revsum, data, query->padding);
 		}
 		else {
-			struct libnet_in6_addr ipv6_dst;
-			memcpy(&ipv6_dst, &(((struct sockaddr_in6 *) &query->dst)->sin6_addr), sizeof(struct libnet_in6_addr));
+			logd(LOG_FATAL, "%s %s: fixrev for IPv6 not impl\n",
+					__FILE__, __LINE__);
 			pkt = NULL;
-			/*pkt = sender6_send_icmp_fixrev(conf->sender6, ipv6_dst,
-							query->ttl,
-							query->ipid, id2checksum[query->flowid],
-							revsum, data, query->padding);*/
 		}
 	}
 
+	// TODO FIXME this is a bug.  no need to generate packet if we just
+	// dump it.
 	if(query->probe == NULL) {
-        query->probe = pkt;
-    }
+		query->probe = pkt;
+	}
 	else {
-        packet_destroy(pkt);
-    }
+		packet_destroy(pkt);
+	}
 	query->trynum++;
 	query->lastpkt = ev->time;
 	event_run_schednext(conf, query);
@@ -624,21 +630,8 @@ static void event_run_timeout(struct confirm *conf, struct event *ev)
 	struct confirm_query *query = ev->query;
 	assert(query->trynum == query->ntries);
 	pavl_assert_delete(conf->queries, query);
-
-	if (query->ip.ss_family == AF_INET){
-
-		struct sockaddr_in ipv4;
-		ipv4.sin_family = AF_INET;
-		ipv4.sin_addr.s_addr = UINT_MAX;
-		query->ip = *((struct sockaddr_storage *) &ipv4);
-	}
-	else {
-		struct sockaddr_in6 ipv6;
-		memset(&ipv6, UINT_MAX, sizeof(struct sockaddr_in6));
-		ipv6.sin6_family = AF_INET6;
-		query->ip = *((struct sockaddr_storage *) &ipv6);
-	}
-
+	assert(query->ip.ss_family == query->dst.ss_family);
+	/* query->ip.sinX_addr was initialized with all bits set */
 	query->cb(query);
 }
 
@@ -661,7 +654,6 @@ static int event_run_answer_testtimeout(const struct confirm_query *query,
 static void event_run_answer(struct confirm *conf, struct event *ev)
 {
 	struct confirm_query *query;
-	char dump[80];
 
 	assert(ev->type = EVENT_ANSWER);
 	query = pavl_find(conf->queries, ev->query);
@@ -681,12 +673,14 @@ static void event_run_answer(struct confirm *conf, struct event *ev)
 	query->cb(query);
 	return;
 
+	char *addr;
 	out_spurious:
-	inet_ntop(AF_INET, &(((struct sockaddr_in *) &ev->query->dst)->sin_addr.s_addr), dump, INET_ADDRSTRLEN);
+	addr = sockaddr_tostr(&(query->dst));
 	logd(5, "%s no query for dst=%s ttl=%d flowid=%d revflow=%d\n",
-			__func__, dump,
+			__func__, addr,
 			ev->query->ttl, ev->query->flowid,
 			ev->query->revflow);
+	free(addr);
 	out:
 	confirm_query_destroy(ev->query);
 } /* }}} */
@@ -695,31 +689,18 @@ static void event_run_answer(struct confirm *conf, struct event *ev)
  * query functions {{{
  ****************************************************************************/
 struct confirm_query *
-confirm_query_create(struct sockaddr_storage dst, uint8_t ttl,
-		uint16_t ipid, uint16_t icmpid,
+confirm_query_create(const struct sockaddr_storage *dst,
+		uint8_t ttl, uint16_t ipid, uint16_t icmpid,
 		uint8_t flowid, uint8_t revflow,
 		confirm_query_cb cb)
 {
 	struct confirm_query *query;
-
 	query = malloc(sizeof(struct confirm_query));
 	if(!query) logea(__FILE__, __LINE__, NULL);
 
-	if (dst.ss_family == AF_INET){
-		query->dst = dst;
-
-		struct sockaddr_in ipv4;
-		ipv4.sin_family = AF_INET;
-		ipv4.sin_addr.s_addr = UINT_MAX;
-		query->ip = *((struct sockaddr_storage *) &ipv4);
-	}
-	else {
-		query->dst = dst;
-		struct sockaddr_in6 ipv6;
-		memset(&ipv6, UINT_MAX, sizeof(struct sockaddr_in6));
-		ipv6.sin6_family = AF_INET6;
-		query->ip = *((struct sockaddr_storage *) &ipv6);
-	}
+	memcpy(&(query->dst), dst, sizeof(query->dst));
+	memset(&(query->ip), UINT8_MAX, sizeof(query->ip));
+	query->ip.ss_family = dst->ss_family;
 
 	query->ttl = ttl;
 	query->ipid = ipid;
@@ -771,28 +752,8 @@ static int query_cmp(const void *a, const void *b, void *dummy)
 	const struct confirm_query *q1 = a;
 	const struct confirm_query *q2 = b;
 
-	if(q2->dst.ss_family == AF_INET){
-		unsigned long dst1, dst2;
-
-        dst1 = (((struct sockaddr_in *) &q1->dst)->sin_addr.s_addr);
-		dst2 = (((struct sockaddr_in *) &q2->dst)->sin_addr.s_addr);
-		if(dst1 < dst2) { return -1; }
-		if(dst1 > dst2) { return +1; }
-	}
-	else {
-		struct libnet_in6_addr dst1, dst2;
-		memcpy(&dst1, &(((struct sockaddr_in6 *) &q1->dst)->sin6_addr), sizeof(struct libnet_in6_addr));
-		memcpy(&dst2, &(((struct sockaddr_in6 *) &q2->dst)->sin6_addr), sizeof(struct libnet_in6_addr));
-
-		char dst1addr[INET6_ADDRSTRLEN];
-		char dst2addr[INET6_ADDRSTRLEN];
-		inet_ntop(AF_INET6, &dst1, dst1addr, INET6_ADDRSTRLEN);
-		inet_ntop(AF_INET6, &dst2, dst2addr, INET6_ADDRSTRLEN);
-
-		int eval = strcmp(dst1addr, dst2addr);
-		if(eval < 0) { return -1; }
-		if(eval > 0) { return +1; }
-	}
+	int cmp = sockaddr_cmp(&(q1->dst), &(q2->dst), dummy);
+	if(cmp) return cmp;
 	if(q1->ttl < q2->ttl) { return -1; }
 	if(q1->ttl > q2->ttl) { return +1; }
 	if(q1->icmpid < q2->icmpid) { return -1; }

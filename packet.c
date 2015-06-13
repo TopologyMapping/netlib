@@ -148,9 +148,7 @@ static struct packet * packet_create(const uint8_t *buf, size_t buflen, size_t i
 	pkt->tstamp.tv_sec = 0;
 	pkt->tstamp.tv_nsec = 0;
 	pkt->buflen = buflen;
-	struct ipversion_toread ipv;
-	memcpy(&ipv, buf + ipoffset, 1);
-	pkt->ipversion = ipv.ip_v;
+	pkt->ipversion = (*(buf + ipoffset) & 0xF0) >> 4;
 	memcpy(pkt->buf, buf, buflen);
 	return pkt;
 }/*}}}*/
@@ -170,7 +168,7 @@ void packet_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 			case ICMP_IREQ:
 			case ICMP_IREQREPLY:
 			case ICMP_PARAMPROB:
-            case ICMP_ROUTERADVERT:
+			case ICMP_ROUTERADVERT:
 			case ICMP_ROUTERSOLICIT:
 			case ICMP_SOURCEQUENCH:
 			case ICMP_ECHO:
@@ -255,4 +253,47 @@ void packet_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 			break;
 		}
 	}
+}/*}}}*/
+
+
+
+char * sockaddr_tostr(const struct sockaddr_storage *sin)/*{{{*/
+{
+	if(sin->ss_family != AF_INET || sin->ss_family != AF_INET6)
+		return strdup("unknown_ss_family");
+	char addr[INET6_ADDRSTRLEN];
+	if(sin->ss_family == AF_INET) {
+		struct sockaddr_in *ip4 = (struct sockaddr_in *)sin;
+		inet_ntop(AF_INET, &(ip4->sin_addr.s_addr), addr, INET6_ADDRSTRLEN);
+	} else {
+		struct sockaddr_in6 *ip6 = (struct sockaddr_in6 *)sin;
+		inet_ntop(AF_INET6, &(ip6->sin6_addr.s6_addr), addr, INET6_ADDRSTRLEN);
+	}
+	return strdup(addr);
+}/*}}}*/
+
+int sockaddr_cmp(const void *vs1, const void *vs2, void *dummy)/*{{{*/
+{
+	const struct sockaddr_storage *s1 = vs1;	
+	const struct sockaddr_storage *s2 = vs2;	
+
+	int f = (s1->ss_family > s2->ss_family) -
+		(s1->ss_family < s2->ss_family);
+	if(f) return f;
+
+	if(s1->ss_family == AF_INET) {
+		const struct sockaddr_in *i1 = vs1;
+		const struct sockaddr_in *i2 = vs1;
+		return memcmp(&(i1->sin_addr), &(i2->sin_addr),
+				sizeof(struct in_addr));
+	}
+	if(s1->ss_family == AF_INET6) {
+		const struct sockaddr_in6 *i1 = vs1;
+		const struct sockaddr_in6 *i2 = vs1;
+		return memcmp(&(i1->sin6_addr), &(i2->sin6_addr),
+				sizeof(struct in6_addr));
+	}
+
+	assert(s1->ss_family == AF_INET || s1->ss_family == AF_INET6);
+	return 0;
 }/*}}}*/

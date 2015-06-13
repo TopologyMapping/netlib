@@ -5,16 +5,13 @@
 #include <time.h>
 #include <libnet.h>
 
-struct ipversion_toread{
-	uint8_t ip_hl:4,ip_v:4;
-};
-
 struct packet {/*{{{*/
 	struct timespec tstamp;
 	uint8_t *buf;
 	size_t buflen;
 
 	uint8_t ipversion;
+	// TODO FIXME should we have a union here too?
 	struct libnet_ipv4_hdr *ip;
 	struct libnet_ipv6_hdr *ipv6;
 
@@ -32,5 +29,8 @@ struct packet * packet_create_ip(const uint8_t *ipbuf, size_t buflen);
 struct packet * packet_clone(const struct packet *orig);
 void packet_destroy(struct packet *pkt);
 char * packet_tostr(const struct packet *pkt);
+
+char * sockaddr_tostr(const struct sockaddr_storage *sin);
+int sockaddr_cmp(const void *vs1, const void *vs2, void *dummy);
 
 #endif

@@ -2,9 +2,10 @@
 #define __CONFIRM_H__
 
 /* the confirmation module receives queries to send packets toward a
- * destination with a given ttl, a given flow identifier, and a maximum number
- * of retransmissions. when an answer is received or after all retransmissions
- * have timed out, a callback function will be called informing the results. */
+ * destination with a given ttl, a given flow identifier, and a
+ * maximum number of retransmissions. when an answer is received or
+ * after all retransmissions have timed out, a callback function
+ * will be called informing the results. */
 
 #include <inttypes.h>
 #include "packet.h"
@@ -51,16 +52,17 @@ void confirm_destroy(struct confirm *confirm);
 
 void confirm_query(struct confirm *confirm, struct confirm_query *query);
 
-struct confirm_query * confirm_query_create(struct sockaddr_storage dst, uint8_t ttl,
-		uint16_t ipid, uint16_t icmpid,
+struct confirm_query * confirm_query_create(const struct sockaddr_storage *dst,
+		uint8_t ttl, uint16_t ipid, uint16_t icmpid,
 		uint8_t flowid, uint8_t revflow,
 		confirm_query_cb cb);
 
-
 void confirm_query_destroy(struct confirm_query *query);
 
-int confirm_pkt_parse(const struct packet *pkt, struct sockaddr_storage *dst,
-	       uint8_t *ttl, uint16_t *icmpid,
-	       uint8_t *flowid, uint8_t *revflow, struct sockaddr_storage *ip);
+int confirm_pkt_parse(const struct packet *pkt,
+		struct sockaddr_storage *dst,
+		uint8_t *ttl, uint16_t *icmpid,
+		uint8_t *flowid, uint8_t *revflow,
+		struct sockaddr_storage *ip);
 
 #endif
