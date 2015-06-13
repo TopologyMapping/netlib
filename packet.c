@@ -6,26 +6,26 @@
 #include "packet.h"
 #include "log.h"
 
-static struct packet * packet_create(const uint8_t *buf, size_t buflen);
+static struct packet * packet_create(const uint8_t *buf, size_t buflen, size_t ipoffset);
 static void packet_fill(struct packet *pkt, size_t ipoffset);
 
 struct packet * packet_create_eth(const uint8_t *ethbuf, size_t buflen)/*{{{*/
 {
-	struct packet *pkt = packet_create(ethbuf, buflen);
+	struct packet *pkt = packet_create(ethbuf, buflen, LIBNET_ETH_H);
 	packet_fill(pkt, LIBNET_ETH_H);
 	return pkt;
 }/*}}}*/
 
 struct packet * packet_create_ip(const uint8_t *ipbuf, size_t buflen)/*{{{*/
 {
-	struct packet *pkt = packet_create(ipbuf, buflen);
+	struct packet *pkt = packet_create(ipbuf, buflen, 0);
 	packet_fill(pkt, 0);
 	return pkt;
 }/*}}}*/
 
 struct packet * packet_clone(const struct packet *orig)/*{{{*/
 {
-	struct packet *pkt = packet_create(orig->buf, orig->buflen);
+	struct packet *pkt = packet_create(orig->buf, orig->buflen, 0);
 	pkt->tstamp = orig->tstamp;
 	pkt->ipversion = orig->ipversion;
 	pkt->ip = orig->ip;
@@ -139,7 +139,7 @@ char * packet_tostr(const struct packet *pkt)/*{{{*/
 
 
 
-static struct packet * packet_create(const uint8_t *buf, size_t buflen)/*{{{*/
+static struct packet * packet_create(const uint8_t *buf, size_t buflen, size_t ipoffset)/*{{{*/
 {
 	struct packet *pkt = malloc(sizeof(*pkt));
 	if(!pkt) logea(__FILE__, __LINE__, NULL);
@@ -149,7 +149,7 @@ static struct packet * packet_create(const uint8_t *buf, size_t buflen)/*{{{*/
 	pkt->tstamp.tv_nsec = 0;
 	pkt->buflen = buflen;
 	struct ipversion_toread ipv;
-	memcpy(&ipv, buf, 1);
+	memcpy(&ipv, buf + ipoffset, 1);
 	pkt->ipversion = ipv.ip_v;
 	memcpy(pkt->buf, buf, buflen);
 	return pkt;
@@ -162,7 +162,6 @@ void packet_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 		assert(pkt->ip->ip_v == 4);
 
 		pkt->icmp = (struct libnet_icmpv4_hdr *)(pkt->buf + ipoffset + pkt->ip->ip_hl*4);
-
 		switch(pkt->ip->ip_p) {
 		case IPPROTO_ICMP: {
 			size_t icmplen = 0;
@@ -212,14 +211,18 @@ void packet_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 	}
 	else if (pkt->ipversion == 6){
 		pkt->ipv6 = (struct libnet_ipv6_hdr *)(pkt->buf + ipoffset);
+		pkt->icmpv6 = (struct libnet_icmpv6_hdr *)(pkt->buf + ipoffset + LIBNET_IPV6_H);
 
+		char ipaddr[INET6_ADDRSTRLEN];
 
-		pkt->icmpv6 = (struct libnet_icmpv6_hdr *)(pkt->buf + ipoffset +
-								pkt->ipv6->ip_hl*4);
+		struct libnet_in6_addr ipv6;
 
+		memcpy(&ipv6, ((struct libnet_in6_addr *) &pkt->ipv6->ip_dst), sizeof(struct libnet_in6_addr));
+
+		inet_ntop(AF_INET6, &ipv6, ipaddr, INET6_ADDRSTRLEN);
 
 		switch(pkt->ipv6->ip_nh) {
-		case IPPROTO_ICMP: {
+		case IPPROTO_ICMP6: {
 			size_t icmplen = 0;
 			switch(pkt->icmpv6->icmp_type) {
 			default:

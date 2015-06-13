@@ -59,4 +59,8 @@ struct confirm_query * confirm_query_create(struct sockaddr_storage dst, uint8_t
 
 void confirm_query_destroy(struct confirm_query *query);
 
+int confirm_pkt_parse(const struct packet *pkt, struct sockaddr_storage *dst,
+	       uint8_t *ttl, uint16_t *icmpid,
+	       uint8_t *flowid, uint8_t *revflow, struct sockaddr_storage *ip);
+
 #endif

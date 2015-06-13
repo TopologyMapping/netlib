@@ -42,10 +42,7 @@ struct sender * sender_create(const char *device) /* {{{ */
 	if(!sender->ln) goto out_libnet;
 	free(dev);
 
-	struct sockaddr_in *ipv4 = malloc(sizeof(struct sockaddr_in));
-	ipv4->sin_family = AF_INET;
-	ipv4->sin_addr.s_addr = libnet_get_ipaddr4(sender->ln);
-	sender->ip = ipv4;
+	sender->ip = libnet_get_ipaddr4(sender->ln);
 
 	sender->icmptag = 0;
 	sender->iptag = 0;

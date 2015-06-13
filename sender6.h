@@ -11,7 +11,7 @@ void sender6_destroy(struct sender6 *sender);
 
 /* if odd, padding will be rounded to the next even integer */
 struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
-		struct libnet_in6_addr dst, uint8_t ttl, uint16_t ipid,
+		struct libnet_in6_addr dst, uint8_t ttl,
 		uint16_t icmpsum, uint16_t icmpid, uint16_t icmpseq,
 		size_t padding);
 
