@@ -35,12 +35,7 @@ int main(int argc, char **argv)
 		ipversion = 4;
 	}
 
-	/*char *iface = "eth0";
-	int ttl = 20;
-    int ipversion = 6;*/
-
 	log_init(LOG_EXTRA, "log.txt", 1, 1024*1024*16);
-
 
 	struct packet *pkt;
 	struct sender *s;
@@ -53,9 +48,9 @@ int main(int argc, char **argv)
 		struct sender6 *s6 = sender6_create(iface);
 		struct libnet_in6_addr ipv6_dst;
 		struct sockaddr_in6 sa;
-		inet_pton(AF_INET6, "::2", &(sa.sin6_addr));
+		inet_pton(AF_INET6, "2800:3f0:4004:803::1012", &(sa.sin6_addr));
 		memcpy(&ipv6_dst, &sa.sin6_addr, sizeof(struct libnet_in6_addr));
-		pkt = sender6_send_icmp(s6, ipv6_dst, ttl, 1, 1, 1, 1, 1000);
+		pkt = sender6_send_icmp(s6, ipv6_dst, ttl, 1, 1, 1, 1, 1, 1000);
 		sender6_destroy(s6);
 	}
 
@@ -78,7 +73,6 @@ int main(int argc, char **argv)
 	logd(LOG_DEBUG, "%s\n", str);
 	free(str);
 	packet_destroy(pkt);*/
-
 
 	log_destroy();
 	exit(EXIT_SUCCESS);

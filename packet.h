@@ -33,4 +33,6 @@ struct packet * packet_clone(const struct packet *orig);
 void packet_destroy(struct packet *pkt);
 char * packet_tostr(const struct packet *pkt);
 
+char * sockaddr_tostr(const struct sockaddr_storage *sin);
+int sockaddr_cmp(const void *vs1, const void *vs2, void *dummy);
 #endif

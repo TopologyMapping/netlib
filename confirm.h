@@ -22,7 +22,8 @@ struct confirm_query {/*{{{*/
 	size_t padding; /* amount of zeroed bytes to append in the probe */
 
 	uint8_t revflow; /* reverse flow ID, uses ipid */
-
+	uint8_t trafficclass;
+	uint16_t flowlabel;
 	int ntries;
 	void (*cb)(struct confirm_query *query);
 	void *data;
@@ -51,9 +52,10 @@ void confirm_destroy(struct confirm *confirm);
 
 void confirm_query(struct confirm *confirm, struct confirm_query *query);
 
-struct confirm_query * confirm_query_create(struct sockaddr_storage dst, uint8_t ttl,
+struct confirm_query * confirm_query_create(const struct sockaddr_storage *dst, uint8_t ttl,
 		uint16_t ipid, uint16_t icmpid,
 		uint8_t flowid, uint8_t revflow,
+		uint8_t trafficclass, uint16_t flowlabel,
 		confirm_query_cb cb);
 
 
@@ -61,6 +63,8 @@ void confirm_query_destroy(struct confirm_query *query);
 
 int confirm_pkt_parse(const struct packet *pkt, struct sockaddr_storage *dst,
 	       uint8_t *ttl, uint16_t *icmpid,
-	       uint8_t *flowid, uint8_t *revflow, struct sockaddr_storage *ip);
+	       uint8_t *flowid, uint8_t *revflow,
+	       uint8_t *trafficclass, uint16_t *flowlabel,
+	       struct sockaddr_storage *ip);
 
 #endif
