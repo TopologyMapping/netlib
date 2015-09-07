@@ -148,7 +148,7 @@ static struct packet * packet_create(const uint8_t *buf, size_t buflen, size_t i
 	pkt->tstamp.tv_sec = 0;
 	pkt->tstamp.tv_nsec = 0;
 	pkt->buflen = buflen;
-    pkt->ipversion = (*(buf + ipoffset) & 0xF0) >> 4;
+	pkt->ipversion = (*(buf + ipoffset) & 0xF0) >> 4;
 	memcpy(pkt->buf, buf, buflen);
 	return pkt;
 }/*}}}*/
