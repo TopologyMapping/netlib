@@ -4,3 +4,6 @@
 [submodule "modules/log"]
 	path = modules/log
 	url = https://github.com/cunha/log.git
+[submodule "modules/dstructs"]
+	path = modules/dstructs
+	url = git@github.com:cunha/dstructs.git
