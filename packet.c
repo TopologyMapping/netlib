@@ -168,7 +168,7 @@ void packet_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 			case ICMP_IREQ:
 			case ICMP_IREQREPLY:
 			case ICMP_PARAMPROB:
-            case ICMP_ROUTERADVERT:
+			case ICMP_ROUTERADVERT:
 			case ICMP_ROUTERSOLICIT:
 			case ICMP_SOURCEQUENCH:
 			case ICMP_ECHO:
