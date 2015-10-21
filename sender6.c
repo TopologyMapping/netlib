@@ -69,6 +69,7 @@ void sender6_destroy(struct sender6 *sender) /* {{{ */
 struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 		struct libnet_in6_addr dst, uint8_t ttl,
 		uint16_t icmpsum, uint16_t icmpid, uint16_t icmpseq,
+		uint8_t trafficclass, uint16_t flowlabel,
 		size_t padding)
 {
 	if((padding % 2) == 1) padding++;
@@ -88,7 +89,7 @@ struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 	if(s->icmptag == -1) goto out;
 
 	size_t sz = LIBNET_ICMPV6_ECHO_H + cnt*sizeof(uint16_t);
-	s->iptag = libnet_build_ipv6(0, 0, sz, IPPROTO_ICMP6, ttl, s->ip, dst,  NULL, 0, s->ln, s->iptag);
+	s->iptag = libnet_build_ipv6(trafficclass, flowlabel, sz, IPPROTO_ICMP6, ttl, s->ip, dst,  NULL, 0, s->ln, s->iptag);
 
 	if(s->iptag == -1) goto out;
 

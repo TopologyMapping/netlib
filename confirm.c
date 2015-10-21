@@ -113,6 +113,7 @@ static uint16_t id2checksum[] = {
 /*****************************************************************************
  * declarations
  ****************************************************************************/
+
 struct confirm {
 	pthread_t thread;
 	pthread_mutex_t evlist_mut;
@@ -321,12 +322,13 @@ static int confirm_recv(const struct packet *pkt, void *vconfirm) /* {{{ */
 	struct event *event;
 	struct sockaddr_storage dst, ip;
 	uint16_t icmpid;
-	uint8_t ttl, flowid, revflow;
+	uint8_t ttl, flowid, revflow, trafficclass;
+	uint16_t flowlabel;
 
-	if(!confirm_pkt_parse(pkt, &dst, &ttl, &icmpid, &flowid, &revflow, &ip)) {
+	if(!confirm_pkt_parse(pkt, &dst, &ttl, &icmpid, &flowid, &revflow,  &trafficclass, &flowlabel, &ip)) {
 		return 1;
 	}
-	query = confirm_query_create(&dst, ttl, 0, icmpid, flowid, revflow, NULL);
+	query = confirm_query_create(&dst, ttl, 0, icmpid, flowid, revflow, trafficclass, flowlabel, NULL);
 	query->ip = ip;
 
 	query->response = packet_clone(pkt);
@@ -338,8 +340,10 @@ static int confirm_recv(const struct packet *pkt, void *vconfirm) /* {{{ */
 } /* }}} */
 
 int confirm_pkt_parse(const struct packet *pkt, struct sockaddr_storage *dst, /*{{{*/
-		uint8_t *ttl, uint16_t *icmpid,
-		uint8_t *flowid, uint8_t *revflow, struct sockaddr_storage *ip)
+	       uint8_t *ttl, uint16_t *icmpid,
+	       uint8_t *flowid, uint8_t *revflow,
+	       uint8_t *trafficclass, uint16_t *flowlabel,
+	       struct sockaddr_storage *ip)
 {
 	uint16_t data;
 	uint16_t revsum;
@@ -535,12 +539,9 @@ static void event_run_query(struct confirm *conf, struct event *ev)
 {
 	struct confirm_query *query = ev->query;
 	assert(ev->type == EVENT_QUERY);
-
 	char *addr = sockaddr_tostr(&(query->dst));
-	logd(LOG_EXTRA, "query dst=%s ttl=%d flowid=%d\n", addr, query->ttl,
-			query->flowid);
+	logd(LOG_EXTRA, "query dst=%s ttl=%d flowid=%d\n", addr, query->ttl, query->flowid);
 	free(addr);
-
 	if(query->ntries == 0) goto out_noconfirm;
 	if(pavl_find(conf->queries, query)) goto out_dup;
 
@@ -592,7 +593,9 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 			pkt = sender6_send_icmp(conf->sender6, ipv6_dst,
 					query->ttl,
 					id2checksum[query->flowid],
-					query->icmpid, data, query->padding);
+					query->icmpid, data,
+					query->trafficclass, query->flowlabel,
+					query->padding);
 		}
 	} else {
 		data = confirm_data_pack(query->ttl, query->flowid, 1);
@@ -606,8 +609,7 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 					revsum, data, query->padding);
 		}
 		else {
-			logd(LOG_FATAL, "%s %s: fixrev for IPv6 not impl\n",
-					__FILE__, __LINE__);
+			logd(LOG_FATAL, "%s %s: fixrev for IPv6 not impl\n", __FILE__, __LINE__);
 			pkt = NULL;
 		}
 	}
@@ -689,12 +691,14 @@ static void event_run_answer(struct confirm *conf, struct event *ev)
  * query functions {{{
  ****************************************************************************/
 struct confirm_query *
-confirm_query_create(const struct sockaddr_storage *dst,
-		uint8_t ttl, uint16_t ipid, uint16_t icmpid,
+confirm_query_create(const struct sockaddr_storage *dst, uint8_t ttl,
+		uint16_t ipid, uint16_t icmpid,
 		uint8_t flowid, uint8_t revflow,
+		uint8_t trafficclass, uint16_t flowlabel,
 		confirm_query_cb cb)
 {
 	struct confirm_query *query;
+
 	query = malloc(sizeof(struct confirm_query));
 	if(!query) logea(__FILE__, __LINE__, NULL);
 
@@ -711,7 +715,8 @@ confirm_query_create(const struct sockaddr_storage *dst,
 	query->flowid = flowid & CONFIRM_MAX_FLOWID;
 	query->padding = 0;
 	query->revflow = (icmpid) ? 0 : revflow & CONFIRM_MAX_FLOWID;
-
+	query->trafficclass = trafficclass;
+	query->flowlabel = flowlabel;
 	query->ntries = 3;
 	query->cb = cb;
 	query->data = NULL;

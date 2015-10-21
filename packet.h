@@ -11,7 +11,6 @@ struct packet {/*{{{*/
 	size_t buflen;
 
 	uint8_t ipversion;
-	// TODO FIXME should we have a union here too?
 	struct libnet_ipv4_hdr *ip;
 	struct libnet_ipv6_hdr *ipv6;
 
@@ -32,5 +31,4 @@ char * packet_tostr(const struct packet *pkt);
 
 char * sockaddr_tostr(const struct sockaddr_storage *sin);
 int sockaddr_cmp(const void *vs1, const void *vs2, void *dummy);
-
 #endif

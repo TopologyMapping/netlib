@@ -255,11 +255,9 @@ void packet_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 	}
 }/*}}}*/
 
-
-
 char * sockaddr_tostr(const struct sockaddr_storage *sin)/*{{{*/
 {
-	if(sin->ss_family != AF_INET || sin->ss_family != AF_INET6)
+	if(sin->ss_family != AF_INET && sin->ss_family != AF_INET6)
 		return strdup("unknown_ss_family");
 	char addr[INET6_ADDRSTRLEN];
 	if(sin->ss_family == AF_INET) {
@@ -267,15 +265,15 @@ char * sockaddr_tostr(const struct sockaddr_storage *sin)/*{{{*/
 		inet_ntop(AF_INET, &(ip4->sin_addr.s_addr), addr, INET6_ADDRSTRLEN);
 	} else {
 		struct sockaddr_in6 *ip6 = (struct sockaddr_in6 *)sin;
-		inet_ntop(AF_INET6, &(ip6->sin6_addr.s6_addr), addr, INET6_ADDRSTRLEN);
+		inet_ntop(AF_INET6, &(ip6->sin6_addr), addr, INET6_ADDRSTRLEN);
 	}
 	return strdup(addr);
 }/*}}}*/
 
 int sockaddr_cmp(const void *vs1, const void *vs2, void *dummy)/*{{{*/
 {
-	const struct sockaddr_storage *s1 = vs1;	
-	const struct sockaddr_storage *s2 = vs2;	
+	const struct sockaddr_storage *s1 = vs1;
+	const struct sockaddr_storage *s2 = vs2;
 
 	int f = (s1->ss_family > s2->ss_family) -
 		(s1->ss_family < s2->ss_family);

@@ -13,6 +13,7 @@ void sender6_destroy(struct sender6 *sender);
 struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 		struct libnet_in6_addr dst, uint8_t ttl,
 		uint16_t icmpsum, uint16_t icmpid, uint16_t icmpseq,
+		uint8_t trafficclass, uint16_t flowlabel,
 		size_t padding);
 
 struct packet * sender6_send_icmp_fixrev(struct sender6 *sender,
