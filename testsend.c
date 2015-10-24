@@ -2,7 +2,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <libnet.h>
-#include "sender.h"
+#include "sender4.h"
 #include "sender6.h"
 #include "log.h"
 
@@ -38,11 +38,11 @@ int main(int argc, char **argv)
 	log_init(LOG_EXTRA, "log.txt", 1, 1024*1024*16);
 
 	struct packet *pkt;
-	struct sender *s;
+	struct sender4 *s;
 	if (ipversion == 4){
-		s = sender_create(iface);
-		pkt = sender_send_icmp(s, 2, ttl, 1, 1, 1, 1, 1000);
-		sender_destroy(s);
+		s = sender4_create(iface);
+		pkt = sender4_send_icmp(s, 2, ttl, 1, 1, 1, 1, 1000);
+		sender4_destroy(s);
 	}
 	else if (ipversion == 6){
 		struct sender6 *s6 = sender6_create(iface);
@@ -62,7 +62,7 @@ int main(int argc, char **argv)
 	sleep(2);
 
 	if (ipversion == 4){
-		pkt = sender_send_icmp_fixrev(s, 2, ttl, 1, 1, 1, 1, 1000);
+		pkt = sender4_send_icmp_fixrev(s, 2, ttl, 1, 1, 1, 1, 1000);
 	}
 	/*else if (ipversion == 6){
         struct libnet_in6_addr dst_ipv6;

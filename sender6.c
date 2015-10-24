@@ -6,8 +6,6 @@
 #include "sender6.h"
 #include "log.h"
 
-#define SENDER_TOS 0
-#define SENDER_FRAG 0
 #define SENDER_AUTO_CHECKSUM 0
 
 /*****************************************************************************
@@ -68,11 +66,11 @@ void sender6_destroy(struct sender6 *sender) /* {{{ */
 
 struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 		struct libnet_in6_addr dst, uint8_t ttl,
+		uint8_t traffic_class, uint32_t flow_label,
 		uint16_t icmpsum, uint16_t icmpid, uint16_t icmpseq,
-		uint8_t trafficclass, uint16_t flowlabel,
 		size_t padding)
 {
-	if((padding % 2) == 1) padding++;
+	padding += (padding % 2);
 	size_t cnt = padding/sizeof(uint16_t) + 1;
 	uint16_t *pload = malloc(cnt * sizeof(uint16_t));
 	if(!pload) logea(__FILE__, __LINE__, NULL);
@@ -89,7 +87,10 @@ struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 	if(s->icmptag == -1) goto out;
 
 	size_t sz = LIBNET_ICMPV6_ECHO_H + cnt*sizeof(uint16_t);
-	s->iptag = libnet_build_ipv6(trafficclass, flowlabel, sz, IPPROTO_ICMP6, ttl, s->ip, dst,  NULL, 0, s->ln, s->iptag);
+	s->iptag = libnet_build_ipv6(traffic_class, flow_label,
+			sz, IPPROTO_ICMP6, ttl, s->ip, dst,
+			NULL, 0,
+			s->ln, s->iptag);
 
 	if(s->iptag == -1) goto out;
 
@@ -106,58 +107,6 @@ struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 	s->icmptag = 0;
 	s->iptag = 0;
 	return NULL;
-} /* }}} */
-
-struct packet * sender6_send_icmp_fixrev(struct sender6 *s, /* {{{ */
-		struct libnet_in6_addr dst, uint8_t ttl, uint16_t ipid,
-		uint16_t icmpsum, uint16_t rev_icmpsum, uint16_t icmpseq,
-		size_t padding)
-{
-	/*uint16_t icmpid;
-
-    struct libnet_icmpv4_hdr outer;
-    outer.icmp_type = ICMP_TIMXCEED;
-    outer.icmp_code = ICMP_TIMXCEED_INTRANS;
-    outer.icmp_sum = htons(rev_icmpsum);
-    outer.hun.gateway = 0;
-
-    struct libnet_ipv4_hdr iip;
-    iip.ip_hl = 5;
-    iip.ip_v = 4;
-    iip.ip_tos = SENDER_TOS;
-    iip.ip_len = htons(LIBNET_IPV4_H + LIBNET_ICMPV4_ECHO_H + 2);
-    iip.ip_id = htons(ipid);
-    iip.ip_off = SENDER_FRAG;
-    iip.ip_ttl = 1;
-    iip.ip_p = IPPROTO_ICMP;
-    iip.ip_sum = 0;
-    iip.ip_src.s_addr = s->ip;
-    iip.ip_dst.s_addr = dst;
-    int chksum = libnet_in_cksum((uint16_t *)&iip, LIBNET_IPV4_H);
-    iip.ip_sum = LIBNET_CKSUM_CARRY(chksum);
-
-    struct libnet_icmpv4_hdr iicmp;
-    iicmp.icmp_type = ICMP_ECHO;
-    iicmp.icmp_code = 0;
-    iicmp.icmp_sum = htons(icmpsum);
-    iicmp.icmp_id = 0;
-    iicmp.icmp_seq = htons(icmpseq);
-
-    assert(LIBNET_ICMPV4_TIMXCEED_H == LIBNET_ICMPV4_ECHO_H);
-    uint8_t buf[LIBNET_IPV4_H + 2*LIBNET_ICMPV4_ECHO_H];
-    memcpy(buf, &outer, LIBNET_ICMPV4_ECHO_H);
-    memcpy(buf + LIBNET_ICMPV4_ECHO_H, &iip, LIBNET_IPV4_H);
-    memcpy(buf + LIBNET_ICMPV4_ECHO_H + LIBNET_IPV4_H, &iicmp,
-            LIBNET_ICMPV4_ECHO_H);
-    chksum = libnet_in_cksum((uint16_t *)buf, sizeof(buf));
-    iicmp.icmp_id = LIBNET_CKSUM_CARRY(chksum);
-
-    // logd(LOG_DEBUG, "IP chksum: 0x%04x\n", ntohs(iip.ip_sum));
-    // logd(LOG_DEBUG, "ICMP chksum: 0x%04x\n", ntohs(iicmp.icmp_id));
-
-    icmpid = ntohs(iicmp.icmp_id);
-
-    return sender_send_icmp(s, dst, ttl, ipid, icmpsum, icmpid, icmpseq, padding);*/
 } /* }}} */
 
 /*****************************************************************************

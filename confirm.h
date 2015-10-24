@@ -1,34 +1,45 @@
 #ifndef __CONFIRM_H__
 #define __CONFIRM_H__
 
-/* the confirmation module receives queries to send packets toward a
- * destination with a given ttl, a given flow identifier, and a maximum number
- * of retransmissions. when an answer is received or after all retransmissions
- * have timed out, a callback function will be called informing the results. */
+/* the confirmation module receives queries to send packets toward
+ * a destination with a given ttl, a given flow identifier, and
+ * a maximum number of retransmissions.  when an answer is received
+ * or after all retransmissions have timed out, a callback function
+ * will be called informing the results. */
 
 #include <inttypes.h>
 #include "packet.h"
 
 struct confirm_query {/*{{{*/
-	/* query fields. must be filled by the caller: */
-	struct sockaddr_storage dst;
+	/* query fields ******************/
+	/* must be filled by the caller: */
+	struct sockaddr_storage dst; // check dst.sa_family
 	uint8_t ttl;
-	uint16_t ipid;
-	/* =ipid is not used to identify probes (in =confirm_query_cmp) as it
-	 * is not returned in ECHO_REPLY packets. */
+
+	union {
+		/* `ip4_id` is not used to identify probes (in
+		 * `confirm_query_cmp`) as it is not returned in
+		 * `ECHO_REPLY` packets. */
+		uint16_t ipid;
+		struct {
+			uint8_t traffic_class;
+			uint32_t flow_label;
+		};
+	};
+
 	uint16_t icmpid; /* icmpid == 0 fixes reverse flow id =revflow */
-	/* uint16_t icmpseq used to identify probes */
-	uint8_t flowid; /* forward ICMP checksum */
+			 /* uint16_t icmpseq used to identify probes */
+	uint8_t flowid;  /* forward ICMP checksum */
+	uint8_t revflow; /* reverse flow ID, ipv4 only, uses ipid */
+
 	size_t padding; /* amount of zeroed bytes to append in the probe */
 
-	uint8_t revflow; /* reverse flow ID, uses ipid */
-	uint8_t trafficclass;
-	uint16_t flowlabel;
 	int ntries;
 	void (*cb)(struct confirm_query *query);
 	void *data;
 
-	/* answer fields. ip unset and trynum == ntries+1 if no answer: */
+	/* answer fields *********************************/
+	/* ip unset and trynum == ntries+1 if no answer: */
 	int trynum;
 	struct sockaddr_storage ip;
 
@@ -46,25 +57,26 @@ struct confirm_query {/*{{{*/
 struct confirm;
 typedef void confirm_query_cb(struct confirm_query *query);
 
-/* will open a libnet sender on the given device and wait for queries. */
+/* `confirm_create` will open a `libnet` sender on the given device
+ * and wait for queries. */
 struct confirm * confirm_create(const char *device);
 void confirm_destroy(struct confirm *confirm);
 
-void confirm_query(struct confirm *confirm, struct confirm_query *query);
+void confirm_submit(struct confirm *confirm, struct confirm_query *query);
 
-struct confirm_query * confirm_query_create(const struct sockaddr_storage *dst, uint8_t ttl,
-		uint16_t ipid, uint16_t icmpid,
-		uint8_t flowid, uint8_t revflow,
-		uint8_t trafficclass, uint16_t flowlabel,
+struct confirm_query * confirm_query_create4(
+		const struct sockaddr_storage *dst,
+		uint8_t ttl,
+		uint16_t ipid,
+		uint16_t icmpid, uint8_t flowid,
+		uint8_t revflow,
 		confirm_query_cb cb);
-
-
+struct confirm_query * confirm_query_create6(
+		const struct sockaddr_storage *dst,
+		uint8_t ttl,
+		uint8_t traffic_class, uint32_t flow_label,
+		uint16_t icmpid, uint8_t flowid,
+		confirm_query_cb cb);
 void confirm_query_destroy(struct confirm_query *query);
-
-int confirm_pkt_parse(const struct packet *pkt, struct sockaddr_storage *dst,
-	       uint8_t *ttl, uint16_t *icmpid,
-	       uint8_t *flowid, uint8_t *revflow,
-	       uint8_t *trafficclass, uint16_t *flowlabel,
-	       struct sockaddr_storage *ip);
 
 #endif

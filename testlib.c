@@ -5,7 +5,7 @@
 #include "demux.h"
 #include "confirm.h"
 #include "log.h"
-#include "sender.h"
+#include "sender4.h"
 #include "packet.h"
 
 
@@ -21,13 +21,12 @@ int check_permissions(void) { /* {{{ */
 
 void querycb(struct confirm_query *q)/*{{{*/
 {
-	char *dstaddr;
-	char *ipaddr;
-	dstaddr = sockaddr_tostr(&q->dst);
-	ipaddr = sockaddr_tostr(&q->ip);
+	char *dstaddr = sockaddr_tostr(&q->dst);
+	char *ipaddr = sockaddr_tostr(&q->ip);
 	printf("dst %s ttl %d ip %s\n", dstaddr, (int)q->ttl, ipaddr);
+	free(dstaddr);
+	free(ipaddr);
 	confirm_query_destroy(q);
-
 }/*}}}*/
 
 
@@ -60,18 +59,22 @@ int main(int argc, char **argv)
 		inet_pton(AF_INET, "200.149.119.183", &(ipv4_dst.sin_addr));
 		dst = *((struct sockaddr_storage *) &ipv4_dst);
 		dst.ss_family = AF_INET;
+		q = confirm_query_create4(&dst, ttl, 1, 1, 1, 0, querycb);
+		confirm_submit(conf, q);
+		q = confirm_query_create4(&dst, ttl+1, 1, 1, 1, 0, querycb);
+		confirm_submit(conf, q);
 	}
-	else if (ipversion==6){
+	else if (ipversion == 6){
 		struct sockaddr_in6 sa;
 		sa.sin6_family = AF_INET6;
 		inet_pton(AF_INET6, "2800:3F0:4004:800:0:0:0:1012", &(sa.sin6_addr));
 		dst = *((struct sockaddr_storage *) &sa);
 		dst.ss_family = AF_INET6;
+		q = confirm_query_create6(&dst, ttl, 1, 1, 0, 0, querycb);
+		confirm_submit(conf, q);
+		q = confirm_query_create6(&dst, ttl+1, 1, 1, 0, 0, querycb);
+		confirm_submit(conf, q);
 	}
-	q = confirm_query_create(&dst, ttl, 1, 1, 1, 0, 0, 0, querycb);
-	confirm_query(conf, q);
-	q = confirm_query_create(&dst, ttl+1, 1, 0, 1, 0, 0, 0, querycb);
-	confirm_query(conf, q);
 
 	sleep(10);
 

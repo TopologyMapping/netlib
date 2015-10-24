@@ -11,7 +11,7 @@ compile: *.c
 	gcc -g -Wall -c packet.c
 	gcc -g -Wall -c sniffer.c
 	gcc -g -Wall -c demux.c
-	gcc -g -Wall -c sender.c
+	gcc -g -Wall -c sender4.c
 	gcc -g -Wall -c sender6.c
 	gcc -g -Wall -c confirm.c
 
