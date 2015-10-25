@@ -22,6 +22,7 @@ struct packet {/*{{{*/
 		struct libnet_tcp_hdr *tcp;
 	};
 	uint8_t *payload;
+	size_t payloadsz;
 };/*}}}*/
 
 struct packet * packet_create_eth(const uint8_t *ethbuf, size_t buflen);

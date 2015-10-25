@@ -59,6 +59,7 @@ static void packet4_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 		logd(LOG_FATAL, "%s unknown ip proto\n", __func__);
 		break;
 	}
+	pkt->payloadsz = pkt->ip->ip_len - (pkt->payload - (uint8_t *)pkt->ip);
 }/*}}}*/
 static void packet6_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 {
@@ -104,6 +105,8 @@ static void packet6_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 		logd(LOG_FATAL, "%s unknown ip proto\n", __func__);
 		break;
 	}
+	pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) -
+			LIBNET_ICMPV6_H;
 } /*}}}*/
 void packet_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 {
@@ -124,6 +127,8 @@ static struct packet * packet_create(const uint8_t *buf, size_t buflen,/*{{{*/
 	pkt->buflen = buflen;
 	pkt->ipversion = (*(buf + ipoffset) & 0xF0) >> 4;
 	memcpy(pkt->buf, buf, buflen);
+	pkt->payload = NULL;
+	pkt->payloadsz = 0;
 	return pkt;
 }/*}}}*/
 struct packet * packet_create_eth(const uint8_t *ethbuf, size_t buflen)/*{{{*/
@@ -148,6 +153,7 @@ struct packet * packet_clone(const struct packet *orig)/*{{{*/
 	pkt->ip = orig->ip;
 	pkt->icmp = orig->icmp;
 	pkt->payload = orig->payload;
+	pkt->payloadsz = orig->payloadsz;
 	return pkt;
 }/*}}}*/
 void packet_destroy(struct packet *pkt)/*{{{*/
