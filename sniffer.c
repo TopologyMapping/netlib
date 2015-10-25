@@ -2,6 +2,7 @@
 #include <inttypes.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 
 #include <pthread.h>
 #include <pcap.h>
@@ -21,8 +22,6 @@ struct sniffer {
 
 /* Returns 0 on success and 1 on error. */
 static void * sniffer_thread(void *vsniffer);
-/* Returns UINT32_T if no AF_INET address is found. */
-static uint32_t sniffer_getifaddr(pcap_if_t *iface);
 /* Returns 0 on success and -1 on error. */
 static int sniffer_openpcap_bpf(struct sniffer *s, pcap_if_t *iface);
 /* Returns 0 on success and -1 on error. */
@@ -95,46 +94,61 @@ static void * sniffer_thread(void *vsniffer) /* {{{ */
 	pthread_exit((void *)1);
 } /* }}} */
 
-static uint32_t sniffer_getifaddr(pcap_if_t *iface) /* {{{ */
-{
-	pcap_addr_t *paddr;
-	for(paddr = iface->addresses; paddr; paddr = paddr->next) {
-		struct sockaddr *saddr = paddr->addr;
-		if(saddr->sa_family == AF_INET) {
-			struct sockaddr_in *inaddr;
-			inaddr = (struct sockaddr_in *)saddr;
-			return inaddr->sin_addr.s_addr;
-		}
-	}
-	logd(LOG_WARN, "%s no AF_INET address in %s\n", __func__, iface->name);
-	return UINT32_MAX;
-} /* }}} */
-
 static int sniffer_openpcap_bpf(struct sniffer *s, pcap_if_t *iface) /* {{{ */
 {
 	struct bpf_program bpf;
-	uint32_t ip;
-	char addr[INET_ADDRSTRLEN];
-	char bpfstr[64];
+	memset(&bpf, 0, sizeof(bpf));
+	char hosts[512];
+	hosts[0] = '\0';
+	pcap_addr_t *paddr;
+	for(paddr = iface->addresses; paddr; paddr = paddr->next) {
+		char hostbuf[80];
+		char addr[INET6_ADDRSTRLEN];
+		struct sockaddr *saddr = paddr->addr;
+		if(saddr->sa_family == AF_INET) {
+			struct sockaddr_in *sin;
+			sin = (struct sockaddr_in *)paddr->addr;
+			inet_ntop(AF_INET, &sin->sin_addr, addr,
+					INET6_ADDRSTRLEN);
+		}
+		else if(saddr->sa_family == AF_INET6) {
+			struct sockaddr_in6 *sin6;
+			sin6 = (struct sockaddr_in6 *)paddr->addr;
+			inet_ntop(AF_INET6, &sin6->sin6_addr, addr,
+					INET6_ADDRSTRLEN);
+		} else {
+			continue;
+		}
+		sprintf(hostbuf, "(host %s) or ", addr);
+		if(strlen(hosts) + strlen(hostbuf) > 500)
+			goto out_lots;
+		strcat(hosts, hostbuf);
+	}
+	if(strlen(hosts) == 0) goto out_ips;
+	*(strrchr(hosts, ')')+1) = '\0'; // remove trailing " or "
 
-	memset(&bpf, 0, sizeof(struct bpf_program));
-	ip = sniffer_getifaddr(iface);
-	if(ip == UINT32_MAX) goto out;
-	if(!inet_ntop(AF_INET, &ip, addr, INET_ADDRSTRLEN)) goto out;
-	sprintf(bpfstr, "dst host %s && (icmp || udp)", addr);
-	if(pcap_compile(s->pcap, &bpf, bpfstr, 1, 0)) goto out_compile;
-	if(pcap_setfilter(s->pcap, &bpf)) goto out_setfilter;
+	char bpfstr[1024];
+	sprintf(bpfstr, "(ip or ip6) and (%s) and not tcp", hosts);
+	logd(LOG_INFO, "configuring bpf filter: %s\n", bpfstr);
+
+	if(pcap_compile(s->pcap, &bpf, bpfstr, 1, PCAP_NETMASK_UNKNOWN))
+		goto out_compile;
+	if(pcap_setfilter(s->pcap, &bpf))
+		goto out_setfilter;
 	pcap_freecode(&bpf);
 	return 0;
 
+	out_lots:
+	logd(LOG_WARN, "%s too many addresses in %s\n", __func__, iface->name);
+	return -1;
+	out_ips:
+	logd(LOG_WARN, "%s no address in %s\n", __func__, iface->name);
+	return -1;
 	out_setfilter:
-	logd(LOG_DEBUG, "%s:%d: error\n", __FILE__, __LINE__);
+	logd(LOG_WARN, "%s:%d %s\n", __FILE__, __LINE__, pcap_geterr(s->pcap));
 	pcap_freecode(&bpf);
 	out_compile:
-	logd(LOG_DEBUG, "%s:%d: %s\n", __FILE__, __LINE__,
-			pcap_geterr(s->pcap));
-	out:
-	loge(LOG_DEBUG, __FILE__, __LINE__);
+	logd(LOG_WARN, "%s:%d [%s]\n", __FILE__, __LINE__, pcap_geterr(s->pcap));
 	return -1;
 } /* }}} */
 
@@ -171,4 +185,3 @@ static int sniffer_openpcap(struct sniffer *s, pcap_if_t *iface) /* {{{ */
 	out:
 	return -1;
 } /* }}} */
-
