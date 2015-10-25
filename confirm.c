@@ -254,46 +254,6 @@ void confirm_submit(struct confirm *confirm, struct confirm_query *query)/*{{{*/
 	confirm_sendevent(confirm, ev);
 } /* }}} */
 
-int confirm_pkt_parse(const struct packet *pkt, uint32_t *dst, /*{{{*/
-	       uint8_t *ttl, uint16_t *icmpid,
-	       uint8_t *flowid, uint8_t *revflow, uint32_t *ip)
-{
-	if(pkt->ip->ip_p != IPPROTO_ICMP) return 0;
-
-	if(pkt->icmp->icmp_type != ICMP_ECHOREPLY &&
-			pkt->icmp->icmp_type != ICMP_TIMXCEED) {
-		return 0;
-	}
-
-	*ip = pkt->ip->ip_src.s_addr;
-	uint16_t data;
-	uint16_t revsum;
-	if(pkt->icmp->icmp_type == ICMP_ECHOREPLY) {
-		*dst = pkt->ip->ip_src.s_addr;
-		*icmpid = ntohs(pkt->icmp->icmp_id);
-		data = ntohs(pkt->icmp->icmp_seq);
-	} else if(pkt->icmp->icmp_type == ICMP_TIMXCEED) {
-		if(pkt->icmp->icmp_code != ICMP_TIMXCEED_INTRANS) return 0;
-		struct libnet_ipv4_hdr *rip;
-		struct libnet_icmpv4_hdr *ricmp;
-		rip = (struct libnet_ipv4_hdr *)(pkt->payload);
-		ricmp = (struct libnet_icmpv4_hdr *)(pkt->payload + rip->ip_hl*4);
-		*dst = rip->ip_dst.s_addr;
-		*icmpid = ntohs(ricmp->icmp_id);
-		revsum = ntohs(pkt->icmp->icmp_sum);
-		data = ntohs(ricmp->icmp_seq);
-	}
-	int fixrev;
-	confirm_data_unpack(data, ttl, flowid, &fixrev);
-	if(fixrev) {
-		*revflow = confirm_inverse_flowid(revsum);
-		*icmpid = 0;
-	} else {
-		*revflow = 0;
-	}
-	return 1;
-} /* }}} */
-
 /*****************************************************************************
  * static functions
  ****************************************************************************/

@@ -79,8 +79,4 @@ struct confirm_query * confirm_query_create6(
 		confirm_query_cb cb);
 void confirm_query_destroy(struct confirm_query *query);
 
-int confirm_pkt_parse(const struct packet *pkt, uint32_t *dst,
-	       uint8_t *ttl, uint16_t *icmpid,
-	       uint8_t *flowid, uint8_t *revflow, uint32_t *ip);
-
 #endif
