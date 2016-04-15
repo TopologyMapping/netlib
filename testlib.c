@@ -32,20 +32,35 @@ void querycb(struct confirm_query *q)/*{{{*/
 
 int main(int argc, char **argv)
 {
-	if(!check_permissions()) { exit(EXIT_FAILURE); }
-	if((argc != 3) && (argc != 4)) {
-		printf("usage: %s iface ttl\n", argv[0]);
+	// run: iface ttl ipversion probe_type
+
+	log_init(LOG_EXTRA, "log.txt", 1, 1024*1024*16);
+
+	if(!check_permissions()) exit(EXIT_FAILURE);
+
+	if(argc!=5){
+		printf("usage: %s iface ttl ipversion probe_type\n", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 
 	char *iface = argv[1];
 	int ttl = atoi(argv[2]);
-	int ipversion; // ipversion = 4 to IPv4; ipversion = 6 to IPv6;
-	if(argc == 4){
-		ipversion = atoi(argv[3]);
+	int ipversion = atoi(argv[3]); // 4 for ipv4, 6 for ipv6
+	int probe_type = atoi(argv[4]); // 1 for icmp, 2 for tcp
+
+	if((probe_type!=1) && (probe_type!=2)){
+		printf("unknown probe type\n");
+		exit(EXIT_FAILURE);		
 	}
-	else{
-		ipversion = 4;
+
+	if((ipversion!=4) && (ipversion!=6)){
+		printf("unknown ip version\n");
+		exit(EXIT_FAILURE);
+	}
+
+	if((probe_type==2) && (ipversion==4)){
+		printf("tcp only supported in ipv6\n");
+		exit(EXIT_FAILURE);
 	}
 
 	demux_init(iface);
@@ -67,12 +82,18 @@ int main(int argc, char **argv)
 	else if (ipversion == 6){
 		struct sockaddr_in6 sa;
 		sa.sin6_family = AF_INET6;
-		inet_pton(AF_INET6, "2800:3F0:4004:800:0:0:0:1012", &(sa.sin6_addr));
+		inet_pton(AF_INET6, "2a03:2880:f001:1f:face:b00c:0:25de", &(sa.sin6_addr));
 		dst = *((struct sockaddr_storage *) &sa);
 		dst.ss_family = AF_INET6;
-		q = confirm_query_create6(&dst, ttl, 1, 1, 0, 0, querycb);
-		confirm_submit(conf, q);
-		q = confirm_query_create6(&dst, ttl+1, 1, 1, 0, 0, querycb);
+
+		if (probe_type==1){
+			// ICMP
+			q = confirm_query_create6_icmp(&dst, ttl, 1, 1, 1, 1, querycb);
+		} else if (probe_type==2){
+			// TCP
+			q = confirm_query_create6_tcp(&dst, ttl, 0, 1201, 51, 31825, 85, querycb);
+		}
+
 		confirm_submit(conf, q);
 	}
 
