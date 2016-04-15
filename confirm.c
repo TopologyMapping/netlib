@@ -441,7 +441,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 			struct libnet_tcp_hdr *rtcp;
 			rip = (struct libnet_ipv6_hdr *)(pkt->payload);
 
-			if(rip->ip_nh==IPPROTO_ICMP){
+			if(rip->ip_nh==IPPROTO_ICMP6){
 				// Pacote interno ICMP
 				probe_type = 1;
 				ricmp = (struct libnet_icmpv6_hdr *)
