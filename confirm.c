@@ -25,6 +25,9 @@
 #define EVENT_TIMEOUT 3
 #define EVENT_ANSWER 4
 
+#define QUERY_TYPE_TCP 1
+#define QUERY_TYPE_ICMP 2
+
 #define CONFIRM_MAX_FLOWID 0x7F
 
 static uint16_t id2checksum[] = {
@@ -395,38 +398,102 @@ static struct confirm_query * confirm_pkt_parse4(const struct packet *pkt)/*{{{*
 	return q;
 } /*}}}*/
 
+// TODO (rafael): this is a draft, confirm_pkt_parse6 with TCP support
 static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*/
 {
 	assert(pkt->ip->ip_v == 6);
-	if(pkt->ipv6->ip_nh != IPPROTO_ICMP6) return NULL;
-	if(pkt->icmpv6->icmp_type != ICMP6_ECHOREPLY &&
-			pkt->icmpv6->icmp_type != ICMP6_TIMXCEED) {
-		return NULL;
-	}
 
 	uint16_t icmpid = 0;
 	uint16_t data = 0;
 	uint8_t traffic_class = 0;
 	uint32_t flow_label = 0;
+	int probe_type = 0; // probe_type can hold 1 (icmp) or 2 (tcp)
 
 	struct sockaddr_in6 dst;
 	dst.sin6_family = AF_INET6;
-	if(pkt->icmpv6->icmp_type == ICMP6_ECHOREPLY) {
+
+	if(pkt->ipv6->ip_nh==IPPROTO_TCP) {
+		// SYN-ACK
+		// TODO (rafael): draft
+		if(pkt->tcp->th_flags != 0x012) return NULL;
+		probe_type = 2;
 		memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
-		icmpid = ntohs(pkt->icmpv6->id);
-		data = ntohs(pkt->icmpv6->seq);
-	} else if(pkt->icmpv6->icmp_type == ICMP6_TIMXCEED) {
-		if(pkt->icmpv6->icmp_code != ICMP_TIMXCEED_INTRANS) return NULL;
-		struct libnet_ipv6_hdr *rip;
-		struct libnet_icmpv6_hdr *ricmp;
-		rip = (struct libnet_ipv6_hdr *)(pkt->payload);
-		ricmp = (struct libnet_icmpv6_hdr *)(pkt->payload + LIBNET_IPV6_H);
-		memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
-		uint32_t flags = *(uint32_t *)(rip->ip_flags);
-		traffic_class = (flags & 0x0FF00000) >> 20;
-		flow_label = (flags & 0x000FFFFF);
-		icmpid = ntohs(ricmp->id);
-		data = ntohs(ricmp->seq);
+		uint32_t tcp_sequence_number = ntohl(pkt->tcp->th_ack) - 1;
+		icmpid = (uint16_t) ((tcp_sequence_number >> 16) & 0x0000FFFF);
+		data = (uint16_t) (tcp_sequence_number & 0x0000FFFF);
+		logd(LOG_DEBUG, "%s TCP SYN-ACK received\n", __func__);
+	}
+	else if(pkt->ipv6->ip_nh==IPPROTO_ICMP6) {
+		if(pkt->icmpv6->icmp_type == ICMP6_ECHOREPLY) {
+			probe_type = 1;
+			// Echo reply
+			memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
+			icmpid = ntohs(pkt->icmpv6->id);
+			data = ntohs(pkt->icmpv6->seq);
+		}
+		else if(pkt->icmpv6->icmp_type == ICMP6_TIMXCEED) {
+			logd(LOG_DEBUG, "%s ICMP time exceeded received\n", __func__);
+
+			// Time exceeded
+			if(pkt->icmpv6->icmp_code != ICMP_TIMXCEED_INTRANS) return NULL;
+			struct libnet_ipv6_hdr *rip;
+			struct libnet_icmpv6_hdr *ricmp;
+			struct libnet_tcp_hdr *rtcp;
+			rip = (struct libnet_ipv6_hdr *)(pkt->payload);
+
+			if(rip->ip_nh==IPPROTO_ICMP){
+				// Pacote interno ICMP
+				probe_type = 1;
+				ricmp = (struct libnet_icmpv6_hdr *)
+						(pkt->payload + LIBNET_IPV6_H);
+				memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
+				uint32_t flags = *(uint32_t *)(rip->ip_flags);
+				traffic_class = (flags & 0x0FF00000) >> 20;
+				flow_label = (flags & 0x000FFFFF);
+				icmpid = ntohs(ricmp->id);
+				data = ntohs(ricmp->seq);
+			}
+			else if(rip->ip_nh==IPPROTO_TCP) {
+				// Pacote interno TCP
+				// TODO (rafael): draft
+				probe_type = 2;
+				rtcp = (struct libnet_tcp_hdr *)(pkt->payload + LIBNET_IPV6_H);
+				memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
+				uint32_t flags = *(uint32_t *)(rip->ip_flags);
+				traffic_class = (flags & 0x0FF00000) >> 20;
+				flow_label = (flags & 0x000FFFFF);
+				data = (uint16_t) (ntohl(rtcp->th_seq) & 0x0000FFFF);
+			}
+			else {
+				logd(LOG_FATAL, "%s %d: no internal TCP or ICMPv6\n", __FILE__,
+					__LINE__);
+				return NULL;
+			}
+		}
+		else if((pkt->icmpv6->icmp_type == ICMP6_DST_UNREACH) &&
+			(pkt->icmpv6->icmp_code == ICMP6_DST_UNREACH_NOPORT)){
+			// Port unreachable
+			// TODO (rafael): draft (to be tested)
+			probe_type = 2;
+			struct libnet_ipv6_hdr *rip = (struct libnet_ipv6_hdr *)(pkt->payload);
+			struct libnet_tcp_hdr *rtcp = (struct libnet_tcp_hdr *)
+					(pkt->payload + LIBNET_IPV6_H);
+			memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
+			uint32_t flags = *(uint32_t *)(rip->ip_flags);
+			traffic_class = (flags & 0x0FF00000) >> 20;
+			flow_label = (flags & 0x000FFFFF);
+			data = (uint16_t) (ntohl(rtcp->th_seq) & 0x0000FFFF);
+			logd(LOG_DEBUG, "%s PORT UNREACH received\n", __func__);
+		}
+		else {
+			logd(LOG_FATAL, "%s %d: unsupported ICMP type %d\n", __FILE__,
+				__LINE__, pkt->icmpv6->icmp_type);
+			return NULL;
+		}
+	}
+	else {
+		logd(LOG_FATAL, "%s %d: no TCP or ICMPv6\n", __FILE__, __LINE__);
+		return NULL;
 	}
 
 	uint8_t ttl;
@@ -436,9 +503,23 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 	assert(fixrev == 0);
 
 	struct sockaddr_storage *ptr = (struct sockaddr_storage *)&dst;
-	struct confirm_query *q = confirm_query_create6(ptr, ttl,
-			traffic_class, flow_label,
-			icmpid, flowid, NULL);
+	struct confirm_query *q;
+
+	logd(LOG_DEBUG, "received probe %d ttl %d flowid %d fixrev %d\n", probe_type, ttl, flowid, fixrev);
+
+	if(probe_type==1){
+		q = confirm_query_create6_icmp(ptr, ttl, traffic_class, flow_label,
+				icmpid, flowid, NULL);
+	}
+	else if(probe_type==2){
+		q = confirm_query_create6_tcp(ptr, ttl, traffic_class, flow_label,
+				flowid, 0, 0, NULL);
+	}
+	else {
+		logd(LOG_FATAL, "%s %d: unexpected\n", __FILE__, __LINE__);
+		return NULL;
+	}
+
 	struct sockaddr_in6 *ip = (struct sockaddr_in6 *)&(q->ip);
 	ip->sin6_family = AF_INET6;
 	memcpy(&(ip->sin6_addr), &(pkt->ipv6->ip_src), sizeof(ip->sin6_addr));
@@ -597,47 +678,58 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 	 * need to keep flowids fixed. */
 
 	struct packet *pkt;
-	if(query->icmpid) { /* if icmpid == 0 then we fix the reverse flowid */
-		data = confirm_data_pack(query->ttl, query->flowid, 0);
-		if(query->dst.ss_family == AF_INET) {
-			struct sockaddr_in *ip4 = (struct sockaddr_in *)
-					&(query->dst);
-			pkt = sender4_send_icmp(conf->sender4,
-					ip4->sin_addr.s_addr, query->ttl,
-					query->ipid,
-					id2checksum[query->flowid],
-					query->icmpid, data,
-					query->padding);
-		}
-		else {
-			struct sockaddr_in6 *dst = (struct sockaddr_in6 *)
-					&(query->dst);
-			struct libnet_in6_addr ipv6_dst;
-			memcpy(&ipv6_dst, &(dst->sin6_addr), sizeof(ipv6_dst));
-			pkt = sender6_send_icmp(conf->sender6,
-					ipv6_dst, query->ttl,
-					query->traffic_class, query->flow_label,
-					id2checksum[query->flowid],
-					query->icmpid, data,
-					query->padding);
-		}
-	} else {
-		data = confirm_data_pack(query->ttl, query->flowid, 1);
-		uint16_t revsum = id2checksum[query->revflow];
-		if(query->ip.ss_family == AF_INET){
-			struct sockaddr_in *ip4 = (struct sockaddr_in *)
-					&(query->dst);
-			pkt = sender4_send_icmp_fixrev(conf->sender4,
-					ip4->sin_addr.s_addr, query->ttl,
-					query->ipid,
-					id2checksum[query->flowid],
-					revsum, data,
-					query->padding);
-		}
-		else {
-			logd(LOG_FATAL, "%s %d: fixrev for IPv6 not impl\n",
-					__FILE__, __LINE__);
-			pkt = NULL;
+	if(query->type==QUERY_TYPE_TCP){
+		struct sockaddr_in6 *dst = (struct sockaddr_in6 *) &(query->dst);
+		struct libnet_in6_addr ipv6_dst;
+		memcpy(&ipv6_dst, &(dst->sin6_addr), sizeof(ipv6_dst));
+		pkt = sender6_send_tcp(conf->sender6, ipv6_dst, query->ttl,
+			query->traffic_class, query->flow_label, query->flowid,
+			query->src_port, query->dst_port);
+	}
+	else {
+		// if not TCP then ICMP		
+		if(query->icmpid) { /* if icmpid == 0 then we fix the reverse flowid */
+			data = confirm_data_pack(query->ttl, query->flowid, 0);
+			if(query->dst.ss_family == AF_INET) {
+				struct sockaddr_in *ip4 = (struct sockaddr_in *)
+						&(query->dst);
+				pkt = sender4_send_icmp(conf->sender4,
+						ip4->sin_addr.s_addr, query->ttl,
+						query->ipid,
+						id2checksum[query->flowid],
+						query->icmpid, data,
+						query->padding);
+			}
+			else {
+				struct sockaddr_in6 *dst = (struct sockaddr_in6 *)
+						&(query->dst);
+				struct libnet_in6_addr ipv6_dst;
+				memcpy(&ipv6_dst, &(dst->sin6_addr), sizeof(ipv6_dst));
+				pkt = sender6_send_icmp(conf->sender6,
+						ipv6_dst, query->ttl,
+						query->traffic_class, query->flow_label,
+						id2checksum[query->flowid],
+						query->icmpid, data,
+						query->padding);
+			}
+		} else {
+			data = confirm_data_pack(query->ttl, query->flowid, 1);
+			uint16_t revsum = id2checksum[query->revflow];
+			if(query->ip.ss_family == AF_INET){
+				struct sockaddr_in *ip4 = (struct sockaddr_in *)
+						&(query->dst);
+				pkt = sender4_send_icmp_fixrev(conf->sender4,
+						ip4->sin_addr.s_addr, query->ttl,
+						query->ipid,
+						id2checksum[query->flowid],
+						revsum, data,
+						query->padding);
+			}
+			else {
+				logd(LOG_FATAL, "%s %d: fixrev for IPv6 not impl\n",
+						__FILE__, __LINE__);
+				pkt = NULL;
+			}
 		}
 	}
 
@@ -763,9 +855,35 @@ confirm_query_create4(const struct sockaddr_storage *dst, uint8_t ttl,
 }
 
 struct confirm_query *
+confirm_query_create6_tcp(const struct sockaddr_storage *dst, uint8_t ttl,
+		uint8_t traffic_class, uint32_t flow_label, uint8_t flowid,
+		uint16_t src_port, uint16_t dst_port, confirm_query_cb cb)
+{
+	struct confirm_query *query = confirm_query_create6(dst, ttl, traffic_class,
+			flow_label, flowid, cb);
+
+	query->src_port = src_port;
+	query->dst_port = dst_port;
+	query->type = QUERY_TYPE_TCP;
+	return query;
+}
+
+struct confirm_query *
+confirm_query_create6_icmp(const struct sockaddr_storage *dst, uint8_t ttl,
+		uint8_t traffic_class, uint32_t flow_label, uint16_t icmpid,
+		uint8_t flowid, confirm_query_cb cb)
+{
+	struct confirm_query *query = confirm_query_create6(dst, ttl, traffic_class,
+			flow_label, flowid, cb);
+
+	query->icmpid = icmpid;
+	query->type = QUERY_TYPE_ICMP;
+	return query;
+}
+
+struct confirm_query *
 confirm_query_create6(const struct sockaddr_storage *dst, uint8_t ttl,
-		uint8_t traffic_class, uint32_t flow_label,
-		uint16_t icmpid, uint8_t flowid,
+		uint8_t traffic_class, uint32_t flow_label, uint8_t flowid,
 		confirm_query_cb cb)
 {
 	struct confirm_query *query;
@@ -780,10 +898,15 @@ confirm_query_create6(const struct sockaddr_storage *dst, uint8_t ttl,
 	query->ttl = ttl;
 	query->traffic_class = traffic_class;
 	query->flow_label = flow_label;
-	query->icmpid = icmpid;
+
 	if(flowid > CONFIRM_MAX_FLOWID) {
 		logd(LOG_WARN, "%s,%d: flowid > 127!\n", __FILE__, __LINE__);
 	}
+
+	query->src_port = 0;
+	query->dst_port = 0;
+	query->icmpid = 0;
+
 	query->flowid = flowid & CONFIRM_MAX_FLOWID;
 	query->padding = 0;
 	query->revflow = 0;

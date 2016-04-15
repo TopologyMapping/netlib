@@ -14,6 +14,7 @@ struct confirm_query {/*{{{*/
 	/* query fields ******************/
 	/* must be filled by the caller: */
 	struct sockaddr_storage dst; // check dst.sa_family
+	int type;
 	uint8_t ttl;
 
 	union {
@@ -26,6 +27,9 @@ struct confirm_query {/*{{{*/
 			uint32_t flow_label;
 		};
 	};
+
+	uint16_t src_port;
+	uint16_t dst_port;
 
 	uint16_t icmpid; /* icmpid == 0 fixes reverse flow id =revflow */
 			 /* uint16_t icmpseq used to identify probes */
@@ -71,12 +75,31 @@ struct confirm_query * confirm_query_create4(
 		uint16_t icmpid, uint8_t flowid,
 		uint8_t revflow,
 		confirm_query_cb cb);
+
 struct confirm_query * confirm_query_create6(
+		const struct sockaddr_storage *dst, uint8_t ttl,
+		uint8_t traffic_class, uint32_t flow_label, uint8_t flowid,
+		confirm_query_cb cb);
+
+struct confirm_query *confirm_query_create6_tcp(
 		const struct sockaddr_storage *dst,
 		uint8_t ttl,
-		uint8_t traffic_class, uint32_t flow_label,
-		uint16_t icmpid, uint8_t flowid,
+		uint8_t traffic_class,
+		uint32_t flow_label,
+		uint8_t flowid,
+		uint16_t src_port,
+		uint16_t dst_port,
 		confirm_query_cb cb);
+
+struct confirm_query *confirm_query_create6_icmp(
+		const struct sockaddr_storage *dst,
+		uint8_t ttl,
+		uint8_t traffic_class,
+		uint32_t flow_label,
+		uint16_t icmpid,
+		uint8_t flowid,
+		confirm_query_cb cb);
+
 void confirm_query_destroy(struct confirm_query *query);
 
 #endif
