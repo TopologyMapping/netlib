@@ -64,8 +64,17 @@ static void packet4_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 static void packet6_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 {
 	pkt->ipv6 = (struct libnet_ipv6_hdr *)(pkt->buf + ipoffset);
-	pkt->icmpv6 = (struct libnet_icmpv6_hdr *)
+	
+	if(pkt->ipv6->ip_nh==IPPROTO_TCP){
+		pkt->tcp = (struct libnet_tcp_hdr *)
 			(pkt->buf + ipoffset + LIBNET_IPV6_H);
+	} else if(pkt->ipv6->ip_nh==IPPROTO_ICMP6){
+		pkt->icmpv6 = (struct libnet_icmpv6_hdr *)
+			(pkt->buf + ipoffset + LIBNET_IPV6_H);
+	} else {
+		logd(LOG_FATAL, "%s unknown ip proto\n", __func__);
+		return;
+	}
 
 	struct libnet_in6_addr ipv6;
 	memcpy(&ipv6, (struct libnet_in6_addr *)&pkt->ipv6->ip_dst, sizeof(ipv6));
@@ -73,40 +82,41 @@ static void packet6_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 	inet_ntop(AF_INET6, &ipv6, ipaddr, INET6_ADDRSTRLEN);
 
 	switch(pkt->ipv6->ip_nh) {
-	case IPPROTO_ICMP6: {
-		size_t icmplen = 0;
-		switch(pkt->icmpv6->icmp_type) {
-		default:
-		case ICMP6_PARAMPROB:
-		case ICMP6_ECHO:
-		case ICMP6_ECHOREPLY:
-			icmplen = LIBNET_ICMPV6_ECHO_H;
-			break;
-		case ICMP6_UNREACH:
-			icmplen = LIBNET_ICMPV6_UNREACH_H;
-			break;
-		case ICMP_REDIRECT:
-			icmplen = LIBNET_ICMPV6_H;
-			break;
-		case ICMP6_TIMXCEED:
-			icmplen = LIBNET_ICMPV6_H;
+		case IPPROTO_ICMP6: {
+			size_t icmplen = 0;
+			switch(pkt->icmpv6->icmp_type) {
+				default:
+				case ICMP6_PARAMPROB:
+				case ICMP6_ECHO:
+				case ICMP6_ECHOREPLY:
+					icmplen = LIBNET_ICMPV6_ECHO_H;
+					break;
+				case ICMP6_UNREACH:
+					icmplen = LIBNET_ICMPV6_UNREACH_H;
+					break;
+				case ICMP_REDIRECT:
+					icmplen = LIBNET_ICMPV6_H;
+					break;
+				case ICMP6_TIMXCEED:
+					icmplen = LIBNET_ICMPV6_H;
+					break;
+			}
+			pkt->payload = (uint8_t *)(pkt->icmpv6) + icmplen;
+			pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) - LIBNET_ICMPV6_H;
 			break;
 		}
-		pkt->payload = (uint8_t *)(pkt->icmpv6) + icmplen;
-		break;
+		case IPPROTO_UDP:
+			pkt->payload = (uint8_t *)(pkt->udp) + LIBNET_UDP_H;
+			pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) - LIBNET_UDP_H;
+			break;
+		case IPPROTO_TCP:
+			pkt->payload = (uint8_t *)(pkt->tcp) + LIBNET_TCP_H;
+			pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) - LIBNET_TCP_H;
+			break;
+		default:
+			logd(LOG_FATAL, "%s unknown ip proto\n", __func__);
+			break;
 	}
-	case IPPROTO_UDP:
-		pkt->payload = (uint8_t *)(pkt->udp) + LIBNET_UDP_H;
-		break;
-	case IPPROTO_TCP:
-		logd(LOG_FATAL, "%s bug! we do not sniff TCP\n", __func__);
-		break;
-	default:
-		logd(LOG_FATAL, "%s unknown ip proto\n", __func__);
-		break;
-	}
-	pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) -
-			LIBNET_ICMPV6_H;
 } /*}}}*/
 void packet_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 {
