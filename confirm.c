@@ -25,8 +25,8 @@
 #define EVENT_TIMEOUT 3
 #define EVENT_ANSWER 4
 
-#define QUERY_TYPE_TCP 1
-#define QUERY_TYPE_ICMP 2
+#define PROBE_TYPE_TCP 1
+#define PROBE_TYPE_ICMP 2
 
 #define CONFIRM_MAX_FLOWID 0x7F
 
@@ -407,35 +407,31 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 	uint16_t data = 0;
 	uint8_t traffic_class = 0;
 	uint32_t flow_label = 0;
-	int probe_type = 0; // probe_type can hold 1 (icmp) or 2 (tcp)
+	int probe_type = 0;
 
 	struct sockaddr_in6 dst;
 	dst.sin6_family = AF_INET6;
 
-	if(pkt->ipv6->ip_nh==IPPROTO_TCP) {
-		// SYN-ACK
-		// TODO (rafael): draft
-		if(pkt->tcp->th_flags != 0x012) return NULL;
-		probe_type = 2;
+	if((pkt->ipv6->ip_nh==IPPROTO_TCP) && (pkt->tcp->th_flags==(TH_ACK|TH_SYN))) {
+		logd(LOG_DEBUG, "%s TCP SYN-ACK received\n", __func__);
+		probe_type = PROBE_TYPE_TCP;
 		memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
+		// syn-ack holds syn tcp sequence number plus 1
 		uint32_t tcp_sequence_number = ntohl(pkt->tcp->th_ack) - 1;
 		icmpid = (uint16_t) ((tcp_sequence_number >> 16) & 0x0000FFFF);
 		data = (uint16_t) (tcp_sequence_number & 0x0000FFFF);
-		logd(LOG_DEBUG, "%s TCP SYN-ACK received\n", __func__);
 	}
 	else if(pkt->ipv6->ip_nh==IPPROTO_ICMP6) {
 		if(pkt->icmpv6->icmp_type == ICMP6_ECHOREPLY) {
-			probe_type = 1;
-			// Echo reply
+			probe_type = PROBE_TYPE_ICMP;
 			memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
 			icmpid = ntohs(pkt->icmpv6->id);
 			data = ntohs(pkt->icmpv6->seq);
 		}
-		else if(pkt->icmpv6->icmp_type == ICMP6_TIMXCEED) {
+		else if((pkt->icmpv6->icmp_type == ICMP6_TIMXCEED) &&
+				(pkt->icmpv6->icmp_code == ICMP_TIMXCEED_INTRANS)) {
 			logd(LOG_DEBUG, "%s ICMP time exceeded received\n", __func__);
 
-			// Time exceeded
-			if(pkt->icmpv6->icmp_code != ICMP_TIMXCEED_INTRANS) return NULL;
 			struct libnet_ipv6_hdr *rip;
 			struct libnet_icmpv6_hdr *ricmp;
 			struct libnet_tcp_hdr *rtcp;
@@ -443,7 +439,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 
 			if(rip->ip_nh==IPPROTO_ICMP6){
 				// Pacote interno ICMP
-				probe_type = 1;
+				probe_type = PROBE_TYPE_ICMP;
 				ricmp = (struct libnet_icmpv6_hdr *)
 						(pkt->payload + LIBNET_IPV6_H);
 				memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
@@ -456,7 +452,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 			else if(rip->ip_nh==IPPROTO_TCP) {
 				// Pacote interno TCP
 				// TODO (rafael): draft
-				probe_type = 2;
+				probe_type = PROBE_TYPE_TCP;
 				rtcp = (struct libnet_tcp_hdr *)(pkt->payload + LIBNET_IPV6_H);
 				memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
 				uint32_t flags = *(uint32_t *)(rip->ip_flags);
@@ -474,7 +470,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 			(pkt->icmpv6->icmp_code == ICMP6_DST_UNREACH_NOPORT)){
 			// Port unreachable
 			// TODO (rafael): draft (to be tested)
-			probe_type = 2;
+			probe_type = PROBE_TYPE_TCP;
 			struct libnet_ipv6_hdr *rip = (struct libnet_ipv6_hdr *)(pkt->payload);
 			struct libnet_tcp_hdr *rtcp = (struct libnet_tcp_hdr *)
 					(pkt->payload + LIBNET_IPV6_H);
@@ -507,11 +503,11 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 
 	logd(LOG_DEBUG, "received probe %d ttl %d flowid %d fixrev %d\n", probe_type, ttl, flowid, fixrev);
 
-	if(probe_type==1){
+	if(probe_type==PROBE_TYPE_ICMP){
 		q = confirm_query_create6_icmp(ptr, ttl, traffic_class, flow_label,
 				icmpid, flowid, NULL);
 	}
-	else if(probe_type==2){
+	else if(probe_type==PROBE_TYPE_TCP){
 		q = confirm_query_create6_tcp(ptr, ttl, traffic_class, flow_label,
 				flowid, 0, 0, NULL);
 	}
@@ -678,7 +674,7 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 	 * need to keep flowids fixed. */
 
 	struct packet *pkt;
-	if(query->type==QUERY_TYPE_TCP){
+	if(query->type==PROBE_TYPE_TCP){
 		struct sockaddr_in6 *dst = (struct sockaddr_in6 *) &(query->dst);
 		struct libnet_in6_addr ipv6_dst;
 		memcpy(&ipv6_dst, &(dst->sin6_addr), sizeof(ipv6_dst));
@@ -864,7 +860,7 @@ confirm_query_create6_tcp(const struct sockaddr_storage *dst, uint8_t ttl,
 
 	query->src_port = src_port;
 	query->dst_port = dst_port;
-	query->type = QUERY_TYPE_TCP;
+	query->type = PROBE_TYPE_TCP;
 	return query;
 }
 
@@ -877,7 +873,7 @@ confirm_query_create6_icmp(const struct sockaddr_storage *dst, uint8_t ttl,
 			flow_label, flowid, cb);
 
 	query->icmpid = icmpid;
-	query->type = QUERY_TYPE_ICMP;
+	query->type = PROBE_TYPE_ICMP;
 	return query;
 }
 
