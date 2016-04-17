@@ -404,7 +404,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 	assert(pkt->ip->ip_v == 6);
 
 	uint16_t icmpid = 0;
-	uint16_t data = 0;
+	uint16_t packed_data = 0;
 	uint8_t traffic_class = 0;
 	uint32_t flow_label = 0;
 	int probe_type = 0;
@@ -418,15 +418,14 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 		memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
 		// syn-ack holds syn tcp sequence number plus 1
 		uint32_t tcp_sequence_number = ntohl(pkt->tcp->th_ack) - 1;
-		icmpid = (uint16_t) ((tcp_sequence_number >> 16) & 0x0000FFFF);
-		data = (uint16_t) (tcp_sequence_number & 0x0000FFFF);
+		packed_data = (uint16_t) (tcp_sequence_number & 0x0000FFFF);
 	}
 	else if(pkt->ipv6->ip_nh==IPPROTO_ICMP6) {
 		if(pkt->icmpv6->icmp_type == ICMP6_ECHOREPLY) {
 			probe_type = PROBE_TYPE_ICMP;
 			memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
 			icmpid = ntohs(pkt->icmpv6->id);
-			data = ntohs(pkt->icmpv6->seq);
+			packed_data = ntohs(pkt->icmpv6->seq);
 		}
 		else if((pkt->icmpv6->icmp_type == ICMP6_TIMXCEED) &&
 				(pkt->icmpv6->icmp_code == ICMP_TIMXCEED_INTRANS)) {
@@ -447,7 +446,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 				traffic_class = (flags & 0x0FF00000) >> 20;
 				flow_label = (flags & 0x000FFFFF);
 				icmpid = ntohs(ricmp->id);
-				data = ntohs(ricmp->seq);
+				packed_data = ntohs(ricmp->seq);
 			}
 			else if(rip->ip_nh==IPPROTO_TCP) {
 				// Pacote interno TCP
@@ -458,7 +457,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 				uint32_t flags = *(uint32_t *)(rip->ip_flags);
 				traffic_class = (flags & 0x0FF00000) >> 20;
 				flow_label = (flags & 0x000FFFFF);
-				data = (uint16_t) (ntohl(rtcp->th_seq) & 0x0000FFFF);
+				packed_data = (uint16_t) (ntohl(rtcp->th_seq) & 0x0000FFFF);
 			}
 			else {
 				logd(LOG_FATAL, "%s %d: no internal TCP or ICMPv6\n", __FILE__,
@@ -478,7 +477,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 			uint32_t flags = *(uint32_t *)(rip->ip_flags);
 			traffic_class = (flags & 0x0FF00000) >> 20;
 			flow_label = (flags & 0x000FFFFF);
-			data = (uint16_t) (ntohl(rtcp->th_seq) & 0x0000FFFF);
+			packed_data = (uint16_t) (ntohl(rtcp->th_seq) & 0x0000FFFF);
 			logd(LOG_DEBUG, "%s PORT UNREACH received\n", __func__);
 		}
 		else {
@@ -495,7 +494,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 	uint8_t ttl;
 	uint8_t flowid;
 	int fixrev;
-	confirm_data_unpack(data, &ttl, &flowid, &fixrev);
+	confirm_data_unpack(packed_data, &ttl, &flowid, &fixrev);
 	assert(fixrev == 0);
 
 	struct sockaddr_storage *ptr = (struct sockaddr_storage *)&dst;
@@ -678,9 +677,16 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 		struct sockaddr_in6 *dst = (struct sockaddr_in6 *) &(query->dst);
 		struct libnet_in6_addr ipv6_dst;
 		memcpy(&ipv6_dst, &(dst->sin6_addr), sizeof(ipv6_dst));
+
+		data = confirm_data_pack(query->ttl, query->flowid, 0);
+		uint32_t ack_number = 0;
+		uint8_t control_flags = TH_SYN;
+		uint16_t windows_size = 5760;
+
 		pkt = sender6_send_tcp(conf->sender6, ipv6_dst, query->ttl,
-			query->traffic_class, query->flow_label, query->flowid,
-			query->src_port, query->dst_port);
+			query->traffic_class, query->flow_label, query->src_port,
+			query->dst_port, data, ack_number, control_flags, windows_size);
+		
 	}
 	else {
 		// if not TCP then ICMP		
@@ -966,12 +972,14 @@ static int query_cmp(const void *a, const void *b, void *dummy)
  * data functions {{{
  ****************************************************************************/
 #define DATA_FLAG_REVFLOW 0x8000
+ 	
 static uint16_t confirm_data_pack(uint8_t ttl, uint8_t fwflow, int fixrev)
 {
 	uint16_t retval = (fwflow << 8) + ttl;
 	if(fixrev) retval |= DATA_FLAG_REVFLOW;
 	return retval;
 }
+
 static void confirm_data_unpack(uint16_t data, uint8_t *ttl, uint8_t *fwflow,
 		int *fixrev)
 {

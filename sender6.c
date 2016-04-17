@@ -8,7 +8,7 @@
 
 #define SENDER_AUTO_CHECKSUM 0
 
-#define SENDER6_PACKET_TYPE_TPC 1
+#define SENDER6_PACKET_TYPE_TCP 1
 #define SENDER6_PACKET_TYPE_ICMP 2
 
 /*****************************************************************************
@@ -27,8 +27,6 @@ struct sender6 {
 static uint16_t sender6_compute_icmp_payload(uint16_t icmpsum, uint16_t icmpid,
 		uint16_t icmpseq);
 static struct packet * sender6_make_packet(struct sender6 *s, int packet_type);
-static uint16_t sender6_compute_tcp_sequence(uint8_t ttl, uint8_t fwflow,
-		int fixrev);
 
 /*****************************************************************************
  * public implementations
@@ -145,7 +143,7 @@ static struct packet * sender6_make_packet(struct sender6 *s, int packet_type)/*
 
 	uint8_t *icbuf;
 	size_t iclen;
-	if(packet_type==SENDER6_PACKET_TYPE_TPC){
+	if(packet_type==SENDER6_PACKET_TYPE_TCP){
 		// TCP
 		icbuf = libnet_getpbuf(ln, s->tcptag);
 		iclen = libnet_getpbuf_size(ln, s->tcptag);
@@ -168,42 +166,29 @@ static struct packet * sender6_make_packet(struct sender6 *s, int packet_type)/*
 }/*}}}*/
 
 // TODO (rafael): draft
-static uint16_t sender6_compute_tcp_sequence(uint8_t ttl, uint8_t fwflow,
-	int fixrev)
-{
-	uint16_t retval = (fwflow << 8) + ttl;
-	if(fixrev) retval |= 0x8000;
-	return retval;
-}
-
-// TODO (rafael): draft
 struct packet * sender6_send_tcp(struct sender6 *s, struct libnet_in6_addr dst,
-		uint8_t ttl, uint8_t traffic_class, uint32_t flow_label, uint8_t flowid,
-		uint16_t sp, uint16_t dp)
+		uint8_t ttl, uint8_t traffic_class, uint32_t flow_label, uint16_t sp,
+		uint16_t dp, uint32_t seq_number, uint32_t ack_number,
+		uint8_t control_flags, uint16_t window_size)
 {
-
-	uint32_t seq = (0 << 16) | sender6_compute_tcp_sequence(ttl, flowid, 0);
-
-	uint32_t ack = 0;
-	uint8_t control = 0x002;
-	uint16_t win = 5760;
-	uint16_t sum = 0;
-	uint16_t urg = 0;
-	uint16_t h_len = LIBNET_TCP_H + 20;
+	uint16_t checksum = 0;
+	uint16_t urgent_pointer = 0;
+	// when using tcp options the size of options have to be summed in total_len
+	uint16_t total_len = LIBNET_TCP_H;
 	const uint8_t *payload = NULL;
 	uint32_t payload_s = 0;
 
-	// TODO (rafael): draft
-	s->opttag = libnet_build_tcp_options((uint8_t*)"\003\003\002\004\002\001\002\004\001\011\000\000\000\000\000\000\000\000\000\000", 20, s->ln, s->opttag);
+	s->opttag = libnet_build_tcp_options(NULL, 0, s->ln, s->opttag);
 
 	if(s->opttag == -1) goto out;
 
-	s->tcptag = libnet_build_tcp(sp, dp, seq, ack, control, win, sum, urg,
-		h_len, payload, payload_s, s->ln, s->tcptag);
+	s->tcptag = libnet_build_tcp(sp, dp, seq_number, ack_number, control_flags,
+		window_size, checksum, urgent_pointer, total_len, payload, payload_s,
+		s->ln, s->tcptag);
 
 	if(s->tcptag == -1) goto out;
 
-	size_t sz = LIBNET_TCP_H + 20;
+	size_t sz = total_len;
 	s->iptag = libnet_build_ipv6(traffic_class, flow_label, sz, 6, ttl, s->ip,
 		dst, NULL, 0, s->ln, s->iptag);
 
@@ -211,7 +196,7 @@ struct packet * sender6_send_tcp(struct sender6 *s, struct libnet_in6_addr dst,
 
 	if(libnet_write(s->ln) < 0) goto out;
 
-	struct packet *pkt = sender6_make_packet(s, SENDER6_PACKET_TYPE_TPC);
+	struct packet *pkt = sender6_make_packet(s, SENDER6_PACKET_TYPE_TCP);
 	return pkt;
 
 	out:
