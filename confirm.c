@@ -686,7 +686,7 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 		pkt = sender6_send_tcp(conf->sender6, ipv6_dst, query->ttl,
 			query->traffic_class, query->flow_label, query->src_port,
 			query->dst_port, data, ack_number, control_flags, windows_size);
-		
+
 	}
 	else {
 		// if not TCP then ICMP		
@@ -861,37 +861,15 @@ confirm_query_create6_tcp(const struct sockaddr_storage *dst, uint8_t ttl,
 		uint8_t traffic_class, uint32_t flow_label, uint8_t flowid,
 		uint16_t src_port, uint16_t dst_port, confirm_query_cb cb)
 {
-	struct confirm_query *query = confirm_query_create6(dst, ttl, traffic_class,
-			flow_label, flowid, cb);
+	struct confirm_query *query = malloc(sizeof(struct confirm_query));
 
-	query->src_port = src_port;
-	query->dst_port = dst_port;
-	query->type = PROBE_TYPE_TCP;
-	return query;
-}
+	if(!query){
+		logea(__FILE__, __LINE__, NULL);
+	}
 
-struct confirm_query *
-confirm_query_create6_icmp(const struct sockaddr_storage *dst, uint8_t ttl,
-		uint8_t traffic_class, uint32_t flow_label, uint16_t icmpid,
-		uint8_t flowid, confirm_query_cb cb)
-{
-	struct confirm_query *query = confirm_query_create6(dst, ttl, traffic_class,
-			flow_label, flowid, cb);
-
-	query->icmpid = icmpid;
-	query->type = PROBE_TYPE_ICMP;
-	return query;
-}
-
-struct confirm_query *
-confirm_query_create6(const struct sockaddr_storage *dst, uint8_t ttl,
-		uint8_t traffic_class, uint32_t flow_label, uint8_t flowid,
-		confirm_query_cb cb)
-{
-	struct confirm_query *query;
-
-	query = malloc(sizeof(struct confirm_query));
-	if(!query) logea(__FILE__, __LINE__, NULL);
+	if(flowid > CONFIRM_MAX_FLOWID) {
+		logd(LOG_WARN, "%s,%d: flowid > 127!\n", __FILE__, __LINE__);
+	}
 
 	memcpy(&(query->dst), dst, sizeof(query->dst));
 	memset(&(query->ip), UINT8_MAX, sizeof(query->ip));
@@ -900,24 +878,16 @@ confirm_query_create6(const struct sockaddr_storage *dst, uint8_t ttl,
 	query->ttl = ttl;
 	query->traffic_class = traffic_class;
 	query->flow_label = flow_label;
-
-	if(flowid > CONFIRM_MAX_FLOWID) {
-		logd(LOG_WARN, "%s,%d: flowid > 127!\n", __FILE__, __LINE__);
-	}
-
-	query->src_port = 0;
-	query->dst_port = 0;
+	query->src_port = src_port;
+	query->dst_port = dst_port;
 	query->icmpid = 0;
-
 	query->flowid = flowid & CONFIRM_MAX_FLOWID;
 	query->padding = 0;
 	query->revflow = 0;
 	query->ntries = 3;
 	query->cb = cb;
 	query->data = NULL;
-
 	query->trynum = 0;
-
 	query->probetime.tv_sec = 2;
 	query->probetime.tv_nsec = 0;
 	query->timeout.tv_sec = 5;
@@ -929,9 +899,57 @@ confirm_query_create6(const struct sockaddr_storage *dst, uint8_t ttl,
 	query->answertime.tv_sec = 0;
 	query->answertime.tv_nsec = 0;
 	query->event = NULL;
-
 	query->probe = NULL;
 	query->response = NULL;
+	query->type = PROBE_TYPE_TCP;
+	return query;
+}
+
+struct confirm_query *
+confirm_query_create6_icmp(const struct sockaddr_storage *dst, uint8_t ttl,
+		uint8_t traffic_class, uint32_t flow_label, uint16_t icmpid,
+		uint8_t flowid, confirm_query_cb cb)
+{
+	struct confirm_query *query = malloc(sizeof(struct confirm_query));
+	
+	if(!query){
+		logea(__FILE__, __LINE__, NULL);
+	}
+
+	if(flowid > CONFIRM_MAX_FLOWID) {
+		logd(LOG_WARN, "%s,%d: flowid > 127!\n", __FILE__, __LINE__);
+	}
+
+	memcpy(&(query->dst), dst, sizeof(query->dst));
+	memset(&(query->ip), UINT8_MAX, sizeof(query->ip));
+	query->ip.ss_family = dst->ss_family;
+	query->ttl = ttl;
+	query->traffic_class = traffic_class;
+	query->flow_label = flow_label;
+	query->src_port = 0;
+	query->dst_port = 0;
+	query->icmpid = icmpid;
+	query->flowid = flowid & CONFIRM_MAX_FLOWID;
+	query->padding = 0;
+	query->revflow = 0;
+	query->ntries = 3;
+	query->cb = cb;
+	query->data = NULL;
+	query->trynum = 0;
+	query->probetime.tv_sec = 2;
+	query->probetime.tv_nsec = 0;
+	query->timeout.tv_sec = 5;
+	query->timeout.tv_nsec = 0;
+	query->start.tv_sec = 0;
+	query->start.tv_nsec = 0;
+	query->lastpkt.tv_sec = 0;
+	query->lastpkt.tv_nsec = 0;
+	query->answertime.tv_sec = 0;
+	query->answertime.tv_nsec = 0;
+	query->event = NULL;
+	query->probe = NULL;
+	query->response = NULL;	
+	query->type = PROBE_TYPE_ICMP;
 	return query;
 }
 

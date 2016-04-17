@@ -76,11 +76,6 @@ struct confirm_query * confirm_query_create4(
 		uint8_t revflow,
 		confirm_query_cb cb);
 
-struct confirm_query * confirm_query_create6(
-		const struct sockaddr_storage *dst, uint8_t ttl,
-		uint8_t traffic_class, uint32_t flow_label, uint8_t flowid,
-		confirm_query_cb cb);
-
 struct confirm_query *confirm_query_create6_tcp(
 		const struct sockaddr_storage *dst,
 		uint8_t ttl,
