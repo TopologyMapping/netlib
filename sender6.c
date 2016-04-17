@@ -8,6 +8,9 @@
 
 #define SENDER_AUTO_CHECKSUM 0
 
+#define SENDER6_PACKET_TYPE_TPC 1
+#define SENDER6_PACKET_TYPE_ICMP 2
+
 /*****************************************************************************
  * static declarations
  ****************************************************************************/
@@ -102,7 +105,7 @@ struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 
 	if(libnet_write(s->ln) < 0) goto out;
 
-	struct packet *pkt = sender6_make_packet(s, 0);
+	struct packet *pkt = sender6_make_packet(s, SENDER6_PACKET_TYPE_ICMP);
 	return pkt;
 
 	out:
@@ -142,14 +145,17 @@ static struct packet * sender6_make_packet(struct sender6 *s, int packet_type)/*
 
 	uint8_t *icbuf;
 	size_t iclen;
-	if(packet_type){
+	if(packet_type==SENDER6_PACKET_TYPE_TPC){
 		// TCP
 		icbuf = libnet_getpbuf(ln, s->tcptag);
 		iclen = libnet_getpbuf_size(ln, s->tcptag);
-	} else {
+	} else if(packet_type==SENDER6_PACKET_TYPE_ICMP) {
 		// ICMP
 		icbuf = libnet_getpbuf(ln, s->icmptag);
 		iclen = libnet_getpbuf_size(ln, s->icmptag);
+	} else {
+		loge(LOG_FATAL, __FILE__, __LINE__);
+		return NULL;
 	}
 
 	uint8_t *buf = malloc(iplen + iclen);
@@ -205,7 +211,7 @@ struct packet * sender6_send_tcp(struct sender6 *s, struct libnet_in6_addr dst,
 
 	if(libnet_write(s->ln) < 0) goto out;
 
-	struct packet *pkt = sender6_make_packet(s, 1);
+	struct packet *pkt = sender6_make_packet(s, SENDER6_PACKET_TYPE_TPC);
 	return pkt;
 
 	out:
