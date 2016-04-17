@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <pthread.h>
+#include <time.h>
 
 #include "demux.h"
 #include "confirm.h"
@@ -8,6 +10,11 @@
 #include "sender4.h"
 #include "packet.h"
 
+#define TESTLIB_PROBE_TCP 1
+#define TESTLIB_PROBE_ICMP 2
+
+pthread_mutex_t cbmutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cbcond = PTHREAD_COND_INITIALIZER;
 
 int check_permissions(void) { /* {{{ */
 	if(getuid() != 0) {
@@ -18,24 +25,22 @@ int check_permissions(void) { /* {{{ */
 	return 1;
 } /* }}} */
 
-
 void querycb(struct confirm_query *q)/*{{{*/
 {
+	pthread_mutex_lock(&cbmutex);
 	char *dstaddr = sockaddr_tostr(&q->dst);
 	char *ipaddr = sockaddr_tostr(&q->ip);
 	printf("dst %s ttl %d ip %s\n", dstaddr, (int)q->ttl, ipaddr);
 	free(dstaddr);
 	free(ipaddr);
 	confirm_query_destroy(q);
+	pthread_cond_signal(&cbcond);
+	pthread_mutex_unlock(&cbmutex);
 }/*}}}*/
-
 
 int main(int argc, char **argv)
 {
 	// run: iface ttl ipversion probe_type
-
-	log_init(LOG_EXTRA, "log.txt", 1, 1024*1024*16);
-
 	if(!check_permissions()) exit(EXIT_FAILURE);
 
 	if(argc!=5){
@@ -46,58 +51,67 @@ int main(int argc, char **argv)
 	char *iface = argv[1];
 	int ttl = atoi(argv[2]);
 	int ipversion = atoi(argv[3]); // 4 for ipv4, 6 for ipv6
-	int probe_type = atoi(argv[4]); // 1 for icmp, 2 for tcp
+	int probe_type;
 
-	if((probe_type!=1) && (probe_type!=2)){
+	// Check probe type
+	if(strcmp(argv[4], "icmp")==0){
+		probe_type = TESTLIB_PROBE_ICMP;
+	}
+	else if(strcmp(argv[4], "tcp")==0){
+		probe_type = TESTLIB_PROBE_TCP;
+	}
+	else {
 		printf("unknown probe type\n");
-		exit(EXIT_FAILURE);		
+		exit(EXIT_FAILURE);	
 	}
 
+	// Check ip version
 	if((ipversion!=4) && (ipversion!=6)){
 		printf("unknown ip version\n");
 		exit(EXIT_FAILURE);
 	}
 
-	if((probe_type==2) && (ipversion==4)){
+	if((probe_type==TESTLIB_PROBE_TCP) && (ipversion==4)){
 		printf("tcp only supported in ipv6\n");
 		exit(EXIT_FAILURE);
 	}
 
+	log_init(LOG_EXTRA, "log.txt", 1, 1024*1024*16);
+	srand(time(NULL));
 	demux_init(iface);
 	struct confirm *conf = confirm_create(iface);
 
-	struct confirm_query *q;
-	struct sockaddr_storage dst;
-	if (ipversion == 4){
-		struct sockaddr_in ipv4_dst;
-		ipv4_dst.sin_family = AF_INET;
-		inet_pton(AF_INET, "200.149.119.183", &(ipv4_dst.sin_addr));
-		dst = *((struct sockaddr_storage *) &ipv4_dst);
-		dst.ss_family = AF_INET;
-		q = confirm_query_create4(&dst, ttl, 1, 1, 1, 0, querycb);
-		confirm_submit(conf, q);
-		q = confirm_query_create4(&dst, ttl+1, 1, 1, 1, 0, querycb);
-		confirm_submit(conf, q);
-	}
-	else if (ipversion == 6){
-		struct sockaddr_in6 sa;
-		sa.sin6_family = AF_INET6;
-		inet_pton(AF_INET6, "2a03:2880:f001:1f:face:b00c:0:25de", &(sa.sin6_addr));
-		dst = *((struct sockaddr_storage *) &sa);
-		dst.ss_family = AF_INET6;
+	int i;
+	for(i=0; i<10; i++){
+		struct confirm_query *q;
+		struct sockaddr_storage dst;
 
-		if (probe_type==1){
-			// ICMP
-			q = confirm_query_create6_icmp(&dst, ttl, 1, 1, 1, 1, querycb);
-		} else if (probe_type==2){
-			// TCP
-			q = confirm_query_create6_tcp(&dst, ttl, 0, 1201, 51, 31825, 85, querycb);
+		if (ipversion == 4){
+			struct sockaddr_in ipv4_dst;
+			ipv4_dst.sin_family = AF_INET;
+			inet_pton(AF_INET, "200.149.119.183", &(ipv4_dst.sin_addr));
+			dst = *((struct sockaddr_storage *) &ipv4_dst);
+			dst.ss_family = AF_INET;
+			q = confirm_query_create4(&dst, ttl+i, 1, 1, 1, 0, querycb);
+		}
+		else if (ipversion == 6){
+			struct sockaddr_in6 sa;
+			sa.sin6_family = AF_INET6;
+			inet_pton(AF_INET6, "2a03:2880:f001:1f:face:b00c:0:25de", &(sa.sin6_addr));
+			dst = *((struct sockaddr_storage *) &sa);
+			dst.ss_family = AF_INET6;
+			if (probe_type==TESTLIB_PROBE_ICMP){ // ICMP
+				q = confirm_query_create6_icmp(&dst, ttl+i, 1, 1, 1, 1, querycb);
+			} else if (probe_type==TESTLIB_PROBE_TCP){ // TCP
+				q = confirm_query_create6_tcp(&dst, ttl+i, 0, 1201, 51, 33435+(rand()%1000), 80, querycb);
+			}
 		}
 
+		pthread_mutex_lock(&cbmutex);
 		confirm_submit(conf, q);
+		pthread_cond_wait(&cbcond, &cbmutex);
+		pthread_mutex_unlock(&cbmutex);
 	}
-
-	sleep(10);
 
 	confirm_destroy(conf);
 	demux_destroy();
