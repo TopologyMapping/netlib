@@ -40,28 +40,37 @@ void querycb(struct confirm_query *q)/*{{{*/
 
 int main(int argc, char **argv)
 {
-	// run: iface ttl ipversion probe_type
+	// run: iface dst_ip start_ttl max_ttl ttl ipversion probe_type
 	if(!check_permissions()) exit(EXIT_FAILURE);
 
-	if(argc!=5){
-		printf("usage: %s iface ttl ipversion probe_type\n", argv[0]);
+	if(argc!=7){
+		printf("usage: %s iface dst_ip start_ttl max_ttl ipversion probe_type\n", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 
 	char *iface = argv[1];
-	int ttl = atoi(argv[2]);
-	int ipversion = atoi(argv[3]); // 4 for ipv4, 6 for ipv6
+	char *dst_ip_str = argv[2];
+	int start_ttl = atoi(argv[3]);
+	int max_ttl = atoi(argv[4]);
+	int ipversion = atoi(argv[5]); // 4 for ipv4, 6 for ipv6
+	char *probe_type_str = argv[6];
 	int probe_type;
 
 	// Check probe type
-	if(strcmp(argv[4], "icmp")==0){
+	if(strcmp(probe_type_str, "icmp")==0){
 		probe_type = TESTLIB_PROBE_ICMP;
 	}
-	else if(strcmp(argv[4], "tcp")==0){
+	else if(strcmp(probe_type_str, "tcp")==0){
 		probe_type = TESTLIB_PROBE_TCP;
 	}
 	else {
 		printf("unknown probe type\n");
+		exit(EXIT_FAILURE);	
+	}
+
+	// Check max ttl
+	if(max_ttl<start_ttl){
+		printf("max_ttl should be at least start_ttl\n");
 		exit(EXIT_FAILURE);	
 	}
 
@@ -81,29 +90,31 @@ int main(int argc, char **argv)
 	demux_init(iface);
 	struct confirm *conf = confirm_create(iface);
 
-	int i;
-	for(i=0; i<10; i++){
+	printf("Sending IPv%d %s probes to %s from ttl=%d to ttl=%d\n", ipversion, probe_type_str, dst_ip_str, start_ttl, max_ttl);
+
+	int ttl;
+	for(ttl=start_ttl; ttl<=max_ttl; ttl++){
 		struct confirm_query *q;
 		struct sockaddr_storage dst;
 
 		if (ipversion == 4){
 			struct sockaddr_in ipv4_dst;
 			ipv4_dst.sin_family = AF_INET;
-			inet_pton(AF_INET, "200.149.119.183", &(ipv4_dst.sin_addr));
+			inet_pton(AF_INET, dst_ip_str, &(ipv4_dst.sin_addr));
 			dst = *((struct sockaddr_storage *) &ipv4_dst);
 			dst.ss_family = AF_INET;
-			q = confirm_query_create4(&dst, ttl+i, 1, 1, 1, 0, querycb);
+			q = confirm_query_create4(&dst, ttl, 1, 1, 1, 0, querycb);
 		}
 		else if (ipversion == 6){
 			struct sockaddr_in6 sa;
 			sa.sin6_family = AF_INET6;
-			inet_pton(AF_INET6, "2a03:2880:f001:1f:face:b00c:0:25de", &(sa.sin6_addr));
+			inet_pton(AF_INET6, dst_ip_str, &(sa.sin6_addr));
 			dst = *((struct sockaddr_storage *) &sa);
 			dst.ss_family = AF_INET6;
 			if (probe_type==TESTLIB_PROBE_ICMP){ // ICMP
-				q = confirm_query_create6_icmp(&dst, ttl+i, 1, 1, 1, 1, querycb);
+				q = confirm_query_create6_icmp(&dst, ttl, 1, 1, 1, 1, querycb);
 			} else if (probe_type==TESTLIB_PROBE_TCP){ // TCP
-				q = confirm_query_create6_tcp(&dst, ttl+i, 0, 1201, 51, 33435+(rand()%1000), 80, querycb);
+				q = confirm_query_create6_tcp(&dst, ttl, 0, 1201, 51, 33435+(rand()%1000), 80, querycb);
 			}
 		}
 
