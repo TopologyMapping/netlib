@@ -61,21 +61,10 @@ static void packet4_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 	}
 	pkt->payloadsz = pkt->ip->ip_len - (pkt->payload - (uint8_t *)pkt->ip);
 }/*}}}*/
+	
 static void packet6_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 {
 	pkt->ipv6 = (struct libnet_ipv6_hdr *)(pkt->buf + ipoffset);
-	
-	if(pkt->ipv6->ip_nh==IPPROTO_TCP){
-		pkt->tcp = (struct libnet_tcp_hdr *)
-			(pkt->buf + ipoffset + LIBNET_IPV6_H);
-	} else if(pkt->ipv6->ip_nh==IPPROTO_ICMP6){
-		pkt->icmpv6 = (struct libnet_icmpv6_hdr *)
-			(pkt->buf + ipoffset + LIBNET_IPV6_H);
-	} else {
-		logd(LOG_FATAL, "%s unknown ip proto\n", __func__);
-		return;
-	}
-
 	struct libnet_in6_addr ipv6;
 	memcpy(&ipv6, (struct libnet_in6_addr *)&pkt->ipv6->ip_dst, sizeof(ipv6));
 	char ipaddr[INET6_ADDRSTRLEN];
@@ -83,6 +72,7 @@ static void packet6_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 
 	switch(pkt->ipv6->ip_nh) {
 		case IPPROTO_ICMP6: {
+			pkt->icmpv6 = (struct libnet_icmpv6_hdr *) (pkt->buf + ipoffset + LIBNET_IPV6_H);
 			size_t icmplen = 0;
 			switch(pkt->icmpv6->icmp_type) {
 				default:
@@ -110,6 +100,7 @@ static void packet6_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 			pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) - LIBNET_UDP_H;
 			break;
 		case IPPROTO_TCP:
+			pkt->tcp = (struct libnet_tcp_hdr *) (pkt->buf + ipoffset + LIBNET_IPV6_H);
 			pkt->payload = (uint8_t *)(pkt->tcp) + LIBNET_TCP_H;
 			pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) - LIBNET_TCP_H;
 			break;
