@@ -28,10 +28,17 @@ struct confirm_query {/*{{{*/
 		};
 	};
 
-	uint16_t src_port;
-	uint16_t dst_port;
+	union {
+		struct {
+			uint16_t src_port;
+			uint16_t dst_port;
+		} tcp;
 
-	uint16_t icmpid; /* icmpid == 0 fixes reverse flow id =revflow */
+		struct {
+			uint16_t icmpid;
+		} icmp;
+	};
+	
 			 /* uint16_t icmpseq used to identify probes */
 	uint8_t flowid;  /* forward ICMP checksum */
 	uint8_t revflow; /* reverse flow ID, ipv4 only, uses ipid */

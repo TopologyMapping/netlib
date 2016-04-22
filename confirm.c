@@ -679,18 +679,20 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 		memcpy(&ipv6_dst, &(dst->sin6_addr), sizeof(ipv6_dst));
 
 		data = confirm_data_pack(query->ttl, query->flowid, 0);
+
 		uint32_t ack_number = 0;
+		uint32_t seq_number = data;
 		uint8_t control_flags = TH_SYN;
-		uint16_t windows_size = 5760;
+		uint16_t window_size = 5760;
 
 		pkt = sender6_send_tcp(conf->sender6, ipv6_dst, query->ttl,
-			query->traffic_class, query->flow_label, query->src_port,
-			query->dst_port, data, ack_number, control_flags, windows_size);
+			query->traffic_class, query->flow_label, query->tcp.src_port,
+			query->tcp.dst_port, seq_number, ack_number, control_flags, window_size);
 
 	}
 	else {
 		// if not TCP then ICMP		
-		if(query->icmpid) { /* if icmpid == 0 then we fix the reverse flowid */
+		if(query->icmp.icmpid) { /* if icmpid == 0 then we fix the reverse flowid */
 			data = confirm_data_pack(query->ttl, query->flowid, 0);
 			if(query->dst.ss_family == AF_INET) {
 				struct sockaddr_in *ip4 = (struct sockaddr_in *)
@@ -699,7 +701,7 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 						ip4->sin_addr.s_addr, query->ttl,
 						query->ipid,
 						id2checksum[query->flowid],
-						query->icmpid, data,
+						query->icmp.icmpid, data,
 						query->padding);
 			}
 			else {
@@ -711,7 +713,7 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 						ipv6_dst, query->ttl,
 						query->traffic_class, query->flow_label,
 						id2checksum[query->flowid],
-						query->icmpid, data,
+						query->icmp.icmpid, data,
 						query->padding);
 			}
 		} else {
@@ -826,7 +828,7 @@ confirm_query_create4(const struct sockaddr_storage *dst, uint8_t ttl,
 
 	query->ttl = ttl;
 	query->ipid = ipid;
-	query->icmpid = icmpid;
+	query->icmp.icmpid = icmpid;
 	if(flowid > CONFIRM_MAX_FLOWID || revflow > CONFIRM_MAX_FLOWID) {
 		logd(LOG_WARN, "%s,%d: flowid > 127!\n", __FILE__, __LINE__);
 	}
@@ -863,9 +865,7 @@ confirm_query_create6_tcp(const struct sockaddr_storage *dst, uint8_t ttl,
 {
 	struct confirm_query *query = malloc(sizeof(struct confirm_query));
 
-	if(!query){
-		logea(__FILE__, __LINE__, NULL);
-	}
+	if(!query) logea(__FILE__, __LINE__, NULL);
 
 	if(flowid > CONFIRM_MAX_FLOWID) {
 		logd(LOG_WARN, "%s,%d: flowid > 127!\n", __FILE__, __LINE__);
@@ -878,9 +878,8 @@ confirm_query_create6_tcp(const struct sockaddr_storage *dst, uint8_t ttl,
 	query->ttl = ttl;
 	query->traffic_class = traffic_class;
 	query->flow_label = flow_label;
-	query->src_port = src_port;
-	query->dst_port = dst_port;
-	query->icmpid = 0;
+	query->tcp.src_port = src_port;
+	query->tcp.dst_port = dst_port;
 	query->flowid = flowid & CONFIRM_MAX_FLOWID;
 	query->padding = 0;
 	query->revflow = 0;
@@ -912,9 +911,7 @@ confirm_query_create6_icmp(const struct sockaddr_storage *dst, uint8_t ttl,
 {
 	struct confirm_query *query = malloc(sizeof(struct confirm_query));
 	
-	if(!query){
-		logea(__FILE__, __LINE__, NULL);
-	}
+	if(!query) logea(__FILE__, __LINE__, NULL);
 
 	if(flowid > CONFIRM_MAX_FLOWID) {
 		logd(LOG_WARN, "%s,%d: flowid > 127!\n", __FILE__, __LINE__);
@@ -926,9 +923,7 @@ confirm_query_create6_icmp(const struct sockaddr_storage *dst, uint8_t ttl,
 	query->ttl = ttl;
 	query->traffic_class = traffic_class;
 	query->flow_label = flow_label;
-	query->src_port = 0;
-	query->dst_port = 0;
-	query->icmpid = icmpid;
+	query->icmp.icmpid = icmpid;
 	query->flowid = flowid & CONFIRM_MAX_FLOWID;
 	query->padding = 0;
 	query->revflow = 0;
@@ -974,8 +969,6 @@ static int query_cmp(const void *a, const void *b, void *dummy)
 	if(cmp) return cmp;
 	if(q1->ttl < q2->ttl) { return -1; }
 	if(q1->ttl > q2->ttl) { return +1; }
-	if(q1->icmpid < q2->icmpid) { return -1; }
-	if(q1->icmpid > q2->icmpid) { return +1; }
 	if(q1->flowid < q2->flowid) { return -1; }
 	if(q1->flowid > q2->flowid) { return +1; }
 	/* removed this because setting the reverse flow ID does not work
