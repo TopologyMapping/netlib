@@ -238,22 +238,30 @@ static char * packet6_tostr(const struct packet *pkt)/*{{{*/
 
 	uint8_t proto = pkt->ipv6->ip_nh;
 	switch(proto) {
-	case IPPROTO_ICMP6: {
-		sprintf(buf2, "ICMP6 type %d code %d chksum 0x%x",
-				pkt->icmpv6->icmp_type,
-				pkt->icmpv6->icmp_code,
-				ntohs(pkt->icmpv6->icmp_sum));
-		uint8_t type = pkt->icmpv6->icmp_type;
-		if(type != ICMP6_ECHOREPLY && type != ICMP6_ECHO) break;
-		sprintf(buf3, "\nICMP6 id %d seq %d",
-				ntohs(pkt->icmpv6->id),
-				ntohs(pkt->icmpv6->seq));
-		strcat(buf2, buf3);
-		break;
-	}
-	default:
-		sprintf(buf2, "transport protocol not supported");
-		break;
+		case IPPROTO_ICMP6: {
+			sprintf(buf2, "ICMP6 type %d code %d chksum 0x%x",
+					pkt->icmpv6->icmp_type,
+					pkt->icmpv6->icmp_code,
+					ntohs(pkt->icmpv6->icmp_sum));
+			uint8_t type = pkt->icmpv6->icmp_type;
+			if(type != ICMP6_ECHOREPLY && type != ICMP6_ECHO) break;
+			sprintf(buf3, "\nICMP6 id %d seq %d",
+					ntohs(pkt->icmpv6->id),
+					ntohs(pkt->icmpv6->seq));
+			strcat(buf2, buf3);
+			break;
+		}
+		case IPPROTO_TCP: {
+			sprintf(buf2, "TCP sp %d dp %d seq %d ack %d",
+					ntohs(pkt->tcp->th_sport),
+					ntohs(pkt->tcp->th_dport),
+					ntohl(pkt->tcp->th_seq),
+					ntohl(pkt->tcp->th_ack));
+			break;
+		}
+		default:
+			sprintf(buf2, "transport protocol not supported");
+			break;
 	}
 	strcat(buf1, buf2);
 
