@@ -412,7 +412,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 	struct sockaddr_in6 dst;
 	dst.sin6_family = AF_INET6;
 
-	if((pkt->ipv6->ip_nh==IPPROTO_TCP) && (pkt->tcp->th_flags==(TH_ACK|TH_SYN))) {
+	if((pkt->ipv6->ip_nh==IPPROTO_TCP) && (pkt->tcp->th_flags & TH_ACK)) {
 		logd(LOG_DEBUG, "%s TCP SYN-ACK received\n", __func__);
 		probe_type = PROBE_TYPE_TCP;
 		memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
