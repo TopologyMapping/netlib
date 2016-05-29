@@ -61,52 +61,53 @@ static void packet4_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 	}
 	pkt->payloadsz = pkt->ip->ip_len - (pkt->payload - (uint8_t *)pkt->ip);
 }/*}}}*/
+	
 static void packet6_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 {
 	pkt->ipv6 = (struct libnet_ipv6_hdr *)(pkt->buf + ipoffset);
-	pkt->icmpv6 = (struct libnet_icmpv6_hdr *)
-			(pkt->buf + ipoffset + LIBNET_IPV6_H);
-
 	struct libnet_in6_addr ipv6;
 	memcpy(&ipv6, (struct libnet_in6_addr *)&pkt->ipv6->ip_dst, sizeof(ipv6));
 	char ipaddr[INET6_ADDRSTRLEN];
 	inet_ntop(AF_INET6, &ipv6, ipaddr, INET6_ADDRSTRLEN);
 
 	switch(pkt->ipv6->ip_nh) {
-	case IPPROTO_ICMP6: {
-		size_t icmplen = 0;
-		switch(pkt->icmpv6->icmp_type) {
-		default:
-		case ICMP6_PARAMPROB:
-		case ICMP6_ECHO:
-		case ICMP6_ECHOREPLY:
-			icmplen = LIBNET_ICMPV6_ECHO_H;
-			break;
-		case ICMP6_UNREACH:
-			icmplen = LIBNET_ICMPV6_UNREACH_H;
-			break;
-		case ICMP_REDIRECT:
-			icmplen = LIBNET_ICMPV6_H;
-			break;
-		case ICMP6_TIMXCEED:
-			icmplen = LIBNET_ICMPV6_H;
+		case IPPROTO_ICMP6: {
+			pkt->icmpv6 = (struct libnet_icmpv6_hdr *) (pkt->buf + ipoffset + LIBNET_IPV6_H);
+			size_t icmplen = 0;
+			switch(pkt->icmpv6->icmp_type) {
+				default:
+				case ICMP6_PARAMPROB:
+				case ICMP6_ECHO:
+				case ICMP6_ECHOREPLY:
+					icmplen = LIBNET_ICMPV6_ECHO_H;
+					break;
+				case ICMP6_UNREACH:
+					icmplen = LIBNET_ICMPV6_UNREACH_H;
+					break;
+				case ICMP_REDIRECT:
+					icmplen = LIBNET_ICMPV6_H;
+					break;
+				case ICMP6_TIMXCEED:
+					icmplen = LIBNET_ICMPV6_H;
+					break;
+			}
+			pkt->payload = (uint8_t *)(pkt->icmpv6) + icmplen;
+			pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) - LIBNET_ICMPV6_H;
 			break;
 		}
-		pkt->payload = (uint8_t *)(pkt->icmpv6) + icmplen;
-		break;
+		case IPPROTO_UDP:
+			pkt->payload = (uint8_t *)(pkt->udp) + LIBNET_UDP_H;
+			pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) - LIBNET_UDP_H;
+			break;
+		case IPPROTO_TCP:
+			pkt->tcp = (struct libnet_tcp_hdr *) (pkt->buf + ipoffset + LIBNET_IPV6_H);
+			pkt->payload = (uint8_t *)(pkt->tcp) + LIBNET_TCP_H;
+			pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) - LIBNET_TCP_H;
+			break;
+		default:
+			logd(LOG_FATAL, "%s unknown ip proto\n", __func__);
+			break;
 	}
-	case IPPROTO_UDP:
-		pkt->payload = (uint8_t *)(pkt->udp) + LIBNET_UDP_H;
-		break;
-	case IPPROTO_TCP:
-		logd(LOG_FATAL, "%s bug! we do not sniff TCP\n", __func__);
-		break;
-	default:
-		logd(LOG_FATAL, "%s unknown ip proto\n", __func__);
-		break;
-	}
-	pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) -
-			LIBNET_ICMPV6_H;
 } /*}}}*/
 void packet_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 {
@@ -237,22 +238,30 @@ static char * packet6_tostr(const struct packet *pkt)/*{{{*/
 
 	uint8_t proto = pkt->ipv6->ip_nh;
 	switch(proto) {
-	case IPPROTO_ICMP6: {
-		sprintf(buf2, "ICMP6 type %d code %d chksum 0x%x",
-				pkt->icmpv6->icmp_type,
-				pkt->icmpv6->icmp_code,
-				ntohs(pkt->icmpv6->icmp_sum));
-		uint8_t type = pkt->icmpv6->icmp_type;
-		if(type != ICMP6_ECHOREPLY && type != ICMP6_ECHO) break;
-		sprintf(buf3, "\nICMP6 id %d seq %d",
-				ntohs(pkt->icmpv6->id),
-				ntohs(pkt->icmpv6->seq));
-		strcat(buf2, buf3);
-		break;
-	}
-	default:
-		sprintf(buf2, "transport protocol not supported");
-		break;
+		case IPPROTO_ICMP6: {
+			sprintf(buf2, "ICMP6 type %d code %d chksum 0x%x",
+					pkt->icmpv6->icmp_type,
+					pkt->icmpv6->icmp_code,
+					ntohs(pkt->icmpv6->icmp_sum));
+			uint8_t type = pkt->icmpv6->icmp_type;
+			if(type != ICMP6_ECHOREPLY && type != ICMP6_ECHO) break;
+			sprintf(buf3, "\nICMP6 id %d seq %d",
+					ntohs(pkt->icmpv6->id),
+					ntohs(pkt->icmpv6->seq));
+			strcat(buf2, buf3);
+			break;
+		}
+		case IPPROTO_TCP: {
+			sprintf(buf2, "TCP sp %d dp %d seq %d ack %d",
+					ntohs(pkt->tcp->th_sport),
+					ntohs(pkt->tcp->th_dport),
+					ntohl(pkt->tcp->th_seq),
+					ntohl(pkt->tcp->th_ack));
+			break;
+		}
+		default:
+			sprintf(buf2, "transport protocol not supported");
+			break;
 	}
 	strcat(buf1, buf2);
 

@@ -1,5 +1,4 @@
 all: compile testlib.c
-	gcc -Wall -g testsend.c *.o -lpcap -lnet -lpthread -lrt -o testsend
 	gcc -Wall -g testlib.c *.o -lpcap -lnet -lpthread -lrt -o testlib
 
 compile: *.c
@@ -16,4 +15,4 @@ compile: *.c
 	gcc -g -Wall -c confirm.c
 
 clean:
-	rm -rf *.o testsend testlib log.txt.0
+	rm -rf *.o testlib log.txt.0
