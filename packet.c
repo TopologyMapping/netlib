@@ -64,8 +64,6 @@ static void packet4_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 static void packet6_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 {
 	pkt->ipv6 = (struct libnet_ipv6_hdr *)(pkt->buf + ipoffset);
-	pkt->icmpv6 = (struct libnet_icmpv6_hdr *)
-			(pkt->buf + ipoffset + LIBNET_IPV6_H);
 
 	struct libnet_in6_addr ipv6;
 	memcpy(&ipv6, (struct libnet_in6_addr *)&pkt->ipv6->ip_dst, sizeof(ipv6));
@@ -74,6 +72,8 @@ static void packet6_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 
 	switch(pkt->ipv6->ip_nh) {
 	case IPPROTO_ICMP6: {
+		pkt->icmpv6 = (struct libnet_icmpv6_hdr *)
+				(pkt->buf + ipoffset + LIBNET_IPV6_H);
 		size_t icmplen = 0;
 		switch(pkt->icmpv6->icmp_type) {
 		default:
@@ -93,20 +93,23 @@ static void packet6_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 			break;
 		}
 		pkt->payload = (uint8_t *)(pkt->icmpv6) + icmplen;
+		pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) - LIBNET_ICMPV6_H;
 		break;
 	}
 	case IPPROTO_UDP:
 		pkt->payload = (uint8_t *)(pkt->udp) + LIBNET_UDP_H;
+		pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) - LIBNET_UDP_H;
 		break;
 	case IPPROTO_TCP:
-		logd(LOG_FATAL, "%s bug! we do not sniff TCP\n", __func__);
+		pkt->tcp = (struct libnet_tcp_hdr *)
+				(pkt->buf + ipoffset + LIBNET_IPV6_H);
+		pkt->payload = (uint8_t *)(pkt->tcp) + LIBNET_TCP_H;
+		pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) - LIBNET_TCP_H;
 		break;
 	default:
 		logd(LOG_FATAL, "%s unknown ip proto\n", __func__);
 		break;
 	}
-	pkt->payloadsz = (size_t)ntohs(pkt->ipv6->ip_len) -
-			LIBNET_ICMPV6_H;
 } /*}}}*/
 void packet_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
 {
@@ -248,6 +251,14 @@ static char * packet6_tostr(const struct packet *pkt)/*{{{*/
 				ntohs(pkt->icmpv6->id),
 				ntohs(pkt->icmpv6->seq));
 		strcat(buf2, buf3);
+		break;
+	}
+	case IPPROTO_TCP: {
+		sprintf(buf2, "TCP sp %d dp %d seq %d ack %d",
+				ntohs(pkt->tcp->th_sport),
+				ntohs(pkt->tcp->th_dport),
+				ntohl(pkt->tcp->th_seq),
+				ntohl(pkt->tcp->th_ack));
 		break;
 	}
 	default:
