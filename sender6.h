@@ -23,4 +23,9 @@ struct packet * sender6_send_icmp_fixrev(struct sender6 *sender,
 		size_t padding);
 */
 
+struct packet * sender6_send_tcp(struct sender6 *s, struct libnet_in6_addr dst,
+		uint8_t ttl, uint8_t traffic_class, uint32_t flow_label, uint16_t sp,
+		uint16_t dp, uint32_t seq_number, uint32_t ack_number,
+		uint8_t control_flags, uint16_t window, uint16_t urgent_pointer);
+
 #endif

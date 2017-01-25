@@ -8,6 +8,9 @@
 
 #define SENDER_AUTO_CHECKSUM 0
 
+#define SENDER6_PACKET_TYPE_TCP 1
+#define SENDER6_PACKET_TYPE_ICMP 2
+
 /*****************************************************************************
  * static declarations
  ****************************************************************************/
@@ -15,13 +18,14 @@ struct sender6 {
 	libnet_t *ln;
 	struct libnet_in6_addr ip;
 	libnet_ptag_t icmptag;
+	libnet_ptag_t tcptag;
 	libnet_ptag_t iptag;
 	libnet_ptag_t tmptag;
 };
 
 static uint16_t sender6_compute_icmp_payload(uint16_t icmpsum, uint16_t icmpid,
 		uint16_t icmpseq);
-static struct packet * sender6_make_packet(struct sender6 *s);
+static struct packet * sender6_make_packet(struct sender6 *s, int packet_type);
 
 /*****************************************************************************
  * public implementations
@@ -42,6 +46,7 @@ struct sender6 * sender6_create(const char *device) /* {{{ */
 	free(dev);
 	sender->ip = libnet_get_ipaddr6(sender->ln);
 	sender->icmptag = 0;
+	sender->tcptag = 0;
 	sender->iptag = 0;
 	sender->tmptag = 0;
 
@@ -96,7 +101,7 @@ struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 
 	if(libnet_write(s->ln) < 0) goto out;
 
-	struct packet *pkt = sender6_make_packet(s);
+	struct packet *pkt = sender6_make_packet(s, SENDER6_PACKET_TYPE_ICMP);
 	return pkt;
 
 	out:
@@ -108,6 +113,40 @@ struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 	s->iptag = 0;
 	return NULL;
 } /* }}} */
+
+struct packet * sender6_send_tcp(struct sender6 *s, struct libnet_in6_addr dst,
+		uint8_t ttl, uint8_t traffic_class, uint32_t flow_label, uint16_t sp,
+		uint16_t dp, uint32_t seq_number, uint32_t ack_number,
+		uint8_t control_flags, uint16_t window, uint16_t urgent_pointer)
+{
+	uint8_t *payload = NULL;
+	uint32_t payload_s = 0;
+	uint16_t checksum = 0;
+
+	s->tcptag = libnet_build_tcp(sp, dp, seq_number, ack_number, control_flags,
+		window, checksum, urgent_pointer, LIBNET_TCP_H, payload, payload_s,
+		s->ln, s->tcptag);
+
+	if(s->tcptag == -1) goto out;
+
+	s->iptag = libnet_build_ipv6(traffic_class, flow_label, LIBNET_TCP_H, 6, ttl, s->ip,
+		dst, NULL, 0, s->ln, s->iptag);
+
+	if(s->iptag == -1) goto out;
+
+	if(libnet_write(s->ln) < 0) goto out;
+
+	struct packet *pkt = sender6_make_packet(s, SENDER6_PACKET_TYPE_TCP);
+	return pkt;
+
+	out:
+	loge(LOG_FATAL, __FILE__, __LINE__);
+	logd(LOG_DEBUG, "%s %d error: %s\n", __func__, ttl, libnet_geterror(s->ln));
+	libnet_clear_packet(s->ln);
+	s->tcptag = 0;
+	s->iptag = 0;
+	return NULL;
+}
 
 /*****************************************************************************
  * static implementations
@@ -128,13 +167,27 @@ static uint16_t sender6_compute_icmp_payload(uint16_t icmpsum, /*{{{*/
 	return (uint16_t)LIBNET_CKSUM_CARRY(payload);
 } /*}}}*/
 
-static struct packet * sender6_make_packet(struct sender6 *s)/*{{{*/
+static struct packet * sender6_make_packet(struct sender6 *s, int packet_type)/*{{{*/
 {
 	libnet_t *ln = s->ln;
 	uint8_t *ipbuf = libnet_getpbuf(ln, s->iptag);
 	size_t iplen = libnet_getpbuf_size(ln, s->iptag);
-	uint8_t *icbuf = libnet_getpbuf(ln, s->icmptag);
-	size_t iclen = libnet_getpbuf_size(ln, s->icmptag);
+
+	uint8_t *icbuf;
+	size_t iclen;
+	if(packet_type==SENDER6_PACKET_TYPE_TCP){
+		// TCP
+		icbuf = libnet_getpbuf(ln, s->tcptag);
+		iclen = libnet_getpbuf_size(ln, s->tcptag);
+	} else if(packet_type==SENDER6_PACKET_TYPE_ICMP) {
+		// ICMP
+		icbuf = libnet_getpbuf(ln, s->icmptag);
+		iclen = libnet_getpbuf_size(ln, s->icmptag);
+	} else {
+		loge(LOG_FATAL, __FILE__, __LINE__);
+		return NULL;
+	}
+
 	uint8_t *buf = malloc(iplen + iclen);
 	if(!buf) logea(__FILE__, __LINE__, NULL);
 	memcpy(buf, ipbuf, iplen);
