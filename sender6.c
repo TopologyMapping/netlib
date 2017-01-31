@@ -109,6 +109,7 @@ struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 	return NULL;
 } /* }}} */
 
+// TO-DO: allow user to set tcp checksum and tcp options
 struct packet * sender6_send_tcp(struct sender6 *s, struct libnet_in6_addr dst,
 		uint8_t ttl, uint8_t traffic_class, uint32_t flow_label, uint16_t sp,
 		uint16_t dp, uint32_t seq_number, uint32_t ack_number,
@@ -116,7 +117,7 @@ struct packet * sender6_send_tcp(struct sender6 *s, struct libnet_in6_addr dst,
 {
 	uint8_t *payload = NULL;
 	uint32_t payload_s = 0;
-	uint16_t checksum = 0; // TO-DO: allow user to set tcp checksum
+	uint16_t checksum = 0;
 
 	s->l4tag = libnet_build_tcp(sp, dp, seq_number, ack_number, control_flags,
 		window, checksum, urgent_pointer, LIBNET_TCP_H, payload, payload_s,
