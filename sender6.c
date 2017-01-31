@@ -14,7 +14,7 @@
 struct sender6 {
 	libnet_t *ln;
 	struct libnet_in6_addr ip;
-	libnet_ptag_t icmptag;
+	libnet_ptag_t l4tag;
 	libnet_ptag_t iptag;
 	libnet_ptag_t tmptag;
 };
@@ -41,7 +41,7 @@ struct sender6 * sender6_create(const char *device) /* {{{ */
 	if(!sender->ln) goto out_libnet;
 	free(dev);
 	sender->ip = libnet_get_ipaddr6(sender->ln);
-	sender->icmptag = 0;
+	sender->l4tag = 0;
 	sender->iptag = 0;
 	sender->tmptag = 0;
 
@@ -78,13 +78,13 @@ struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 
 	pload[cnt-1] = sender6_compute_icmp_payload(icmpsum, icmpid, icmpseq);
 
-	s->icmptag = libnet_build_icmpv6_echo(ICMP6_ECHO, 0,
+	s->l4tag = libnet_build_icmpv6_echo(ICMP6_ECHO, 0,
 		SENDER_AUTO_CHECKSUM, icmpid, icmpseq,
 		(uint8_t *)pload, cnt * sizeof(uint16_t),
-		s->ln, s->icmptag);
+		s->ln, s->l4tag);
 
 	free(pload);
-	if(s->icmptag == -1) goto out;
+	if(s->l4tag == -1) goto out;
 
 	size_t sz = LIBNET_ICMPV6_ECHO_H + cnt*sizeof(uint16_t);
 	s->iptag = libnet_build_ipv6(traffic_class, flow_label,
@@ -104,10 +104,45 @@ struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
 	logd(LOG_DEBUG, "%s %d %d error: %s\n", __func__, ttl, icmpsum,
 			libnet_geterror(s->ln));
 	libnet_clear_packet(s->ln);
-	s->icmptag = 0;
+	s->l4tag = 0;
 	s->iptag = 0;
 	return NULL;
 } /* }}} */
+
+// TO-DO: allow user to set tcp checksum and tcp options
+struct packet * sender6_send_tcp(struct sender6 *s, struct libnet_in6_addr dst,
+		uint8_t ttl, uint8_t traffic_class, uint32_t flow_label, uint16_t sp,
+		uint16_t dp, uint32_t seq_number, uint32_t ack_number,
+		uint8_t control_flags, uint16_t window, uint16_t urgent_pointer)
+{
+	uint8_t *payload = NULL;
+	uint32_t payload_s = 0;
+	uint16_t checksum = 0;
+
+	s->l4tag = libnet_build_tcp(sp, dp, seq_number, ack_number, control_flags,
+		window, checksum, urgent_pointer, LIBNET_TCP_H, payload, payload_s,
+		s->ln, s->l4tag);
+
+	if(s->l4tag == -1) goto out;
+
+	s->iptag = libnet_build_ipv6(traffic_class, flow_label, LIBNET_TCP_H, 6, ttl, s->ip,
+		dst, NULL, 0, s->ln, s->iptag);
+
+	if(s->iptag == -1) goto out;
+
+	if(libnet_write(s->ln) < 0) goto out;
+
+	struct packet *pkt = sender6_make_packet(s);
+	return pkt;
+
+	out:
+	loge(LOG_FATAL, __FILE__, __LINE__);
+	logd(LOG_DEBUG, "%s %d error: %s\n", __func__, ttl, libnet_geterror(s->ln));
+	libnet_clear_packet(s->ln);
+	s->l4tag = 0;
+	s->iptag = 0;
+	return NULL;
+}
 
 /*****************************************************************************
  * static implementations
@@ -133,8 +168,8 @@ static struct packet * sender6_make_packet(struct sender6 *s)/*{{{*/
 	libnet_t *ln = s->ln;
 	uint8_t *ipbuf = libnet_getpbuf(ln, s->iptag);
 	size_t iplen = libnet_getpbuf_size(ln, s->iptag);
-	uint8_t *icbuf = libnet_getpbuf(ln, s->icmptag);
-	size_t iclen = libnet_getpbuf_size(ln, s->icmptag);
+	uint8_t *icbuf = libnet_getpbuf(ln, s->l4tag);
+	size_t iclen = libnet_getpbuf_size(ln, s->l4tag);
 	uint8_t *buf = malloc(iplen + iclen);
 	if(!buf) logea(__FILE__, __LINE__, NULL);
 	memcpy(buf, ipbuf, iplen);
