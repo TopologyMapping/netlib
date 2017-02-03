@@ -725,8 +725,7 @@ confirm_query_create4(const struct sockaddr_storage *dst, uint8_t ttl,
 		confirm_query_cb cb)
 {
 	struct confirm_query *query;
-
-	query = malloc(sizeof(struct confirm_query));
+	query = malloc(sizeof(*query));
 	if(!query) logea(__FILE__, __LINE__, NULL);
 
 	memcpy(&(query->dst), dst, sizeof(query->dst));
@@ -770,7 +769,8 @@ confirm_query_create6_icmp(const struct sockaddr_storage *dst, uint8_t ttl,
 		uint8_t traffic_class, uint32_t flow_label, uint16_t icmpid,
 		uint8_t flowid, confirm_query_cb cb)
 {
-	struct confirm_query *query = malloc(sizeof(struct confirm_query));
+	struct confirm_query *query;
+	query = malloc(sizeof(*query));
 	if(!query) logea(__FILE__, __LINE__, NULL);
 
 	if(flowid > CONFIRM_MAX_FLOWID) {
@@ -816,8 +816,8 @@ confirm_query_create6_tcp(const struct sockaddr_storage *dst, uint8_t ttl,
 		uint8_t control_flags, uint16_t window, uint16_t urgent_pointer,
 		confirm_query_cb cb)
 {
-	struct confirm_query *query = malloc(sizeof(struct confirm_query));
-
+	struct confirm_query *query;
+	query = malloc(sizeof(*query));
 	if(!query) logea(__FILE__, __LINE__, NULL);
 
 	if(flowid > CONFIRM_MAX_FLOWID) {

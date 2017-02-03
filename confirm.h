@@ -42,7 +42,13 @@ struct confirm_query {/*{{{*/
 		uint16_t icmpid; /* icmpid == 0 fixes reverse flow id =revflow */
 	};
 
-	uint8_t flowid;  /* forward ICMP checksum */
+	/*
+	Note: for ICMP probes, the flowid goes into the checksum field
+	      and it is in fact the flow identification of the probe,
+	      for TCP probes, the flowid goes into the sequence number and it is
+	      only the number of the probe used to match the response.
+	*/
+	uint8_t flowid;
 	uint8_t revflow; /* reverse flow ID, ipv4 only, uses ipid */
 
 	size_t padding; /* amount of zeroed bytes to append in the probe */
