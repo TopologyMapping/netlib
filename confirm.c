@@ -731,7 +731,8 @@ struct confirm_query *confirm_query_create_defaults(
 	query->ip.ss_family = dst->ss_family;
 	
 	if(flowid > CONFIRM_MAX_FLOWID || revflow > CONFIRM_MAX_FLOWID) {
-		logd(LOG_WARN, "%s,%d: flowid > 127!\n", __FILE__, __LINE__);
+		logd(LOG_WARN, "%s,%d: flowid > CONFIRM_MAX_FLOWID (%d)!\n", __FILE__,
+			__LINE__, CONFIRM_MAX_FLOWID);
 	}
 
 	query->flowid = flowid & CONFIRM_MAX_FLOWID;
