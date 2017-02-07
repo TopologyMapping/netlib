@@ -11,6 +11,8 @@
 #include "packet.h"
 
 struct confirm_query {/*{{{*/
+	int probe_type;
+	
 	/* query fields ******************/
 	/* must be filled by the caller: */
 	struct sockaddr_storage dst; // check dst.sa_family
@@ -27,9 +29,26 @@ struct confirm_query {/*{{{*/
 		};
 	};
 
-	uint16_t icmpid; /* icmpid == 0 fixes reverse flow id =revflow */
-			 /* uint16_t icmpseq used to identify probes */
-	uint8_t flowid;  /* forward ICMP checksum */
+	union {
+		struct {
+			uint16_t src_port;
+			uint16_t dst_port;
+			uint32_t ack_number;
+			uint8_t  control_flags;
+			uint16_t window;
+			uint16_t urgent_pointer;
+		} tcp;
+
+		uint16_t icmpid; /* icmpid == 0 fixes reverse flow id =revflow */
+	};
+
+	/*
+	Note: for ICMP probes, the flowid goes into the checksum field
+	      and it is in fact the flow identification of the probe,
+	      for TCP probes, the flowid goes into the sequence number and it is
+	      only the number of the probe used to match the response.
+	*/
+	uint8_t flowid;
 	uint8_t revflow; /* reverse flow ID, ipv4 only, uses ipid */
 
 	size_t padding; /* amount of zeroed bytes to append in the probe */
@@ -71,12 +90,21 @@ struct confirm_query * confirm_query_create4(
 		uint16_t icmpid, uint8_t flowid,
 		uint8_t revflow,
 		confirm_query_cb cb);
-struct confirm_query * confirm_query_create6(
+
+struct confirm_query * confirm_query_create6_icmp(
 		const struct sockaddr_storage *dst,
 		uint8_t ttl,
 		uint8_t traffic_class, uint32_t flow_label,
 		uint16_t icmpid, uint8_t flowid,
 		confirm_query_cb cb);
+
+struct confirm_query * confirm_query_create6_tcp(
+		const struct sockaddr_storage *dst, uint8_t ttl,
+		uint8_t traffic_class, uint32_t flow_label, uint8_t flowid,
+		uint16_t src_port, uint16_t dst_port, uint32_t ack_number,
+		uint8_t control_flags, uint16_t window, uint16_t urgent_pointer,
+		confirm_query_cb cb);
+
 void confirm_query_destroy(struct confirm_query *query);
 
 #endif

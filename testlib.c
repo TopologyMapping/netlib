@@ -70,9 +70,9 @@ int main(int argc, char **argv)
 		inet_pton(AF_INET6, "2800:3F0:4004:800:0:0:0:1012", &(sa.sin6_addr));
 		dst = *((struct sockaddr_storage *) &sa);
 		dst.ss_family = AF_INET6;
-		q = confirm_query_create6(&dst, ttl, 1, 1, 0, 0, querycb);
+		q = confirm_query_create6_icmp(&dst, ttl, 1, 1, 0, 0, querycb);
 		confirm_submit(conf, q);
-		q = confirm_query_create6(&dst, ttl+1, 1, 1, 0, 0, querycb);
+		q = confirm_query_create6_icmp(&dst, ttl+1, 1, 1, 0, 0, querycb);
 		confirm_submit(conf, q);
 	}
 

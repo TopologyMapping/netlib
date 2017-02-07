@@ -20,6 +20,9 @@
 #include "packet.h"
 #include "confirm.h"
 
+#define PROBE_TYPE_ICMP 1
+#define PROBE_TYPE_TCP 2
+
 #define EVENT_QUERY 1
 #define EVENT_SENDPACKET 2
 #define EVENT_TIMEOUT 3
@@ -436,7 +439,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 	assert(fixrev == 0);
 
 	struct sockaddr_storage *ptr = (struct sockaddr_storage *)&dst;
-	struct confirm_query *q = confirm_query_create6(ptr, ttl,
+	struct confirm_query *q = confirm_query_create6_icmp(ptr, ttl,
 			traffic_class, flow_label,
 			icmpid, flowid, NULL);
 	struct sockaddr_in6 *ip = (struct sockaddr_in6 *)&(q->ip);
@@ -715,84 +718,30 @@ static void event_run_answer(struct confirm *conf, struct event *ev)
 /*****************************************************************************
  * query functions {{{
  ****************************************************************************/
-struct confirm_query *
-confirm_query_create4(const struct sockaddr_storage *dst, uint8_t ttl,
-		uint16_t ipid,
-		uint16_t icmpid, uint8_t flowid, uint8_t revflow,
+struct confirm_query *confirm_query_create_defaults(
+		const struct sockaddr_storage *dst, uint8_t ttl, uint8_t flowid,
 		confirm_query_cb cb)
 {
 	struct confirm_query *query;
-
-	query = malloc(sizeof(struct confirm_query));
+	query = malloc(sizeof(*query));
 	if(!query) logea(__FILE__, __LINE__, NULL);
 
 	memcpy(&(query->dst), dst, sizeof(query->dst));
 	memset(&(query->ip), UINT8_MAX, sizeof(query->ip));
 	query->ip.ss_family = dst->ss_family;
-
-	query->ttl = ttl;
-	query->ipid = ipid;
-	query->icmpid = icmpid;
+	
 	if(flowid > CONFIRM_MAX_FLOWID || revflow > CONFIRM_MAX_FLOWID) {
-		logd(LOG_WARN, "%s,%d: flowid > 127!\n", __FILE__, __LINE__);
+		logd(LOG_WARN, "%s,%d: flowid > CONFIRM_MAX_FLOWID (%d)!\n", __FILE__,
+			__LINE__, CONFIRM_MAX_FLOWID);
 	}
-	query->flowid = flowid & CONFIRM_MAX_FLOWID;
-	query->padding = 0;
-	query->revflow = (icmpid) ? 0 : revflow & CONFIRM_MAX_FLOWID;
-	query->ntries = 3;
-	query->cb = cb;
-	query->data = NULL;
 
-	query->trynum = 0;
-
-	query->probetime.tv_sec = 2;
-	query->probetime.tv_nsec = 0;
-	query->timeout.tv_sec = 5;
-	query->timeout.tv_nsec = 0;
-	query->start.tv_sec = 0;
-	query->start.tv_nsec = 0;
-	query->lastpkt.tv_sec = 0;
-	query->lastpkt.tv_nsec = 0;
-	query->answertime.tv_sec = 0;
-	query->answertime.tv_nsec = 0;
-	query->event = NULL;
-
-	query->probe = NULL;
-	query->response = NULL;
-	return query;
-}
-
-struct confirm_query *
-confirm_query_create6(const struct sockaddr_storage *dst, uint8_t ttl,
-		uint8_t traffic_class, uint32_t flow_label,
-		uint16_t icmpid, uint8_t flowid,
-		confirm_query_cb cb)
-{
-	struct confirm_query *query;
-
-	query = malloc(sizeof(struct confirm_query));
-	if(!query) logea(__FILE__, __LINE__, NULL);
-
-	memcpy(&(query->dst), dst, sizeof(query->dst));
-	memset(&(query->ip), UINT8_MAX, sizeof(query->ip));
-	query->ip.ss_family = dst->ss_family;
-
-	query->ttl = ttl;
-	query->traffic_class = traffic_class;
-	query->flow_label = flow_label;
-	query->icmpid = icmpid;
-	if(flowid > CONFIRM_MAX_FLOWID) {
-		logd(LOG_WARN, "%s,%d: flowid > 127!\n", __FILE__, __LINE__);
-	}
 	query->flowid = flowid & CONFIRM_MAX_FLOWID;
 	query->padding = 0;
 	query->revflow = 0;
 	query->ntries = 3;
 	query->cb = cb;
 	query->data = NULL;
-
 	query->trynum = 0;
-
 	query->probetime.tv_sec = 2;
 	query->probetime.tv_nsec = 0;
 	query->timeout.tv_sec = 5;
@@ -804,9 +753,57 @@ confirm_query_create6(const struct sockaddr_storage *dst, uint8_t ttl,
 	query->answertime.tv_sec = 0;
 	query->answertime.tv_nsec = 0;
 	query->event = NULL;
-
 	query->probe = NULL;
 	query->response = NULL;
+
+	return query;
+}
+
+struct confirm_query *
+confirm_query_create4(const struct sockaddr_storage *dst, uint8_t ttl,
+		uint16_t ipid,
+		uint16_t icmpid, uint8_t flowid, uint8_t revflow,
+		confirm_query_cb cb)
+{
+	struct confirm_query *query = confirm_query_create_defaults(dst, ttl, flowid, cb);
+	query->ipid = ipid;
+	query->icmpid = icmpid;
+	query->revflow = (icmpid) ? 0 : revflow & CONFIRM_MAX_FLOWID;
+	// Just in case (for IPv4 we only support ICMP)
+	query->probe_type = PROBE_TYPE_ICMP;
+	return query;
+}
+
+struct confirm_query *
+confirm_query_create6_icmp(const struct sockaddr_storage *dst, uint8_t ttl,
+		uint8_t traffic_class, uint32_t flow_label, uint16_t icmpid,
+		uint8_t flowid, confirm_query_cb cb)
+{
+	struct confirm_query *query = confirm_query_create_defaults(dst, ttl, flowid, cb);
+	query->traffic_class = traffic_class;
+	query->flow_label = flow_label;
+	query->icmpid = icmpid;
+	query->probe_type = PROBE_TYPE_ICMP;
+	return query;
+}
+
+struct confirm_query *
+confirm_query_create6_tcp(const struct sockaddr_storage *dst, uint8_t ttl,
+		uint8_t traffic_class, uint32_t flow_label, uint8_t flowid,
+		uint16_t src_port, uint16_t dst_port, uint32_t ack_number,
+		uint8_t control_flags, uint16_t window, uint16_t urgent_pointer,
+		confirm_query_cb cb)
+{
+	struct confirm_query *query = confirm_query_create_defaults(dst, ttl, flowid, cb);
+	query->traffic_class = traffic_class;
+	query->flow_label = flow_label;
+	query->tcp.src_port = src_port;
+	query->tcp.dst_port = dst_port;
+	query->tcp.ack_number = ack_number;
+	query->tcp.control_flags = control_flags;
+	query->tcp.window = window;
+	query->tcp.urgent_pointer = urgent_pointer;	
+	query->probe_type = PROBE_TYPE_TCP;
 	return query;
 }
 
