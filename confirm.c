@@ -736,6 +736,7 @@ struct confirm_query *confirm_query_create_defaults(
 	}
 
 	query->flowid = flowid & CONFIRM_MAX_FLOWID;
+	query->ttl = ttl;
 	query->padding = 0;
 	query->revflow = 0;
 	query->ntries = 3;
