@@ -730,12 +730,13 @@ struct confirm_query *confirm_query_create_defaults(
 	memset(&(query->ip), UINT8_MAX, sizeof(query->ip));
 	query->ip.ss_family = dst->ss_family;
 	
-	if(flowid > CONFIRM_MAX_FLOWID || revflow > CONFIRM_MAX_FLOWID) {
+	if(flowid > CONFIRM_MAX_FLOWID) {
 		logd(LOG_WARN, "%s,%d: flowid > CONFIRM_MAX_FLOWID (%d)!\n", __FILE__,
 			__LINE__, CONFIRM_MAX_FLOWID);
 	}
 
 	query->flowid = flowid & CONFIRM_MAX_FLOWID;
+	query->ttl = ttl;
 	query->padding = 0;
 	query->revflow = 0;
 	query->ntries = 3;
@@ -765,6 +766,11 @@ confirm_query_create4(const struct sockaddr_storage *dst, uint8_t ttl,
 		uint16_t icmpid, uint8_t flowid, uint8_t revflow,
 		confirm_query_cb cb)
 {
+	if(revflow > CONFIRM_MAX_FLOWID) {
+		logd(LOG_WARN, "%s,%d: revflow > CONFIRM_MAX_FLOWID (%d)!\n", __FILE__,
+			__LINE__, CONFIRM_MAX_FLOWID);
+	}
+
 	struct confirm_query *query = confirm_query_create_defaults(dst, ttl, flowid, cb);
 	query->ipid = ipid;
 	query->icmpid = icmpid;
