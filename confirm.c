@@ -600,47 +600,63 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 	 * need to keep flowids fixed. */
 
 	struct packet *pkt;
-	if(query->icmpid) { /* if icmpid == 0 then we fix the reverse flowid */
+	if (query->probe_type == PROBE_TYPE_TCP) {
+		struct sockaddr_in6 *dst = (struct sockaddr_in6 *) &(query->dst);
+		struct libnet_in6_addr ipv6_dst;
+		memcpy(&ipv6_dst, &(dst->sin6_addr), sizeof(ipv6_dst));
+
 		data = confirm_data_pack(query->ttl, query->flowid, 0);
-		if(query->dst.ss_family == AF_INET) {
-			struct sockaddr_in *ip4 = (struct sockaddr_in *)
-					&(query->dst);
-			pkt = sender4_send_icmp(conf->sender4,
-					ip4->sin_addr.s_addr, query->ttl,
-					query->ipid,
-					id2checksum[query->flowid],
-					query->icmpid, data,
-					query->padding);
-		}
-		else {
-			struct sockaddr_in6 *dst = (struct sockaddr_in6 *)
-					&(query->dst);
-			struct libnet_in6_addr ipv6_dst;
-			memcpy(&ipv6_dst, &(dst->sin6_addr), sizeof(ipv6_dst));
-			pkt = sender6_send_icmp(conf->sender6,
-					ipv6_dst, query->ttl,
-					query->traffic_class, query->flow_label,
-					id2checksum[query->flowid],
-					query->icmpid, data,
-					query->padding);
-		}
-	} else {
-		data = confirm_data_pack(query->ttl, query->flowid, 1);
-		uint16_t revsum = id2checksum[query->revflow];
-		if(query->ip.ss_family == AF_INET){
-			struct sockaddr_in *ip4 = (struct sockaddr_in *)
-					&(query->dst);
-			pkt = sender4_send_icmp_fixrev(conf->sender4,
-					ip4->sin_addr.s_addr, query->ttl,
-					query->ipid,
-					id2checksum[query->flowid],
-					revsum, data,
-					query->padding);
-		}
-		else {
-			logd(LOG_FATAL, "%s %d: fixrev for IPv6 not impl\n",
-					__FILE__, __LINE__);
-			pkt = NULL;
+		uint32_t seq_number = data;
+
+		pkt = sender6_send_tcp(conf->sender6, ipv6_dst, query->ttl,
+			query->traffic_class, query->flow_label, query->tcp.src_port,
+			query->tcp.dst_port, seq_number, query->tcp.ack_number,
+			query->tcp.control_flags, query->tcp.window, query->tcp.urgent_pointer);
+
+	} else if (query->probe_type == PROBE_TYPE_ICMP) {
+		
+		if(query->icmpid) { /* if icmpid == 0 then we fix the reverse flowid */
+			data = confirm_data_pack(query->ttl, query->flowid, 0);
+			if(query->dst.ss_family == AF_INET) {
+				struct sockaddr_in *ip4 = (struct sockaddr_in *)
+						&(query->dst);
+				pkt = sender4_send_icmp(conf->sender4,
+						ip4->sin_addr.s_addr, query->ttl,
+						query->ipid,
+						id2checksum[query->flowid],
+						query->icmpid, data,
+						query->padding);
+			}
+			else {
+				struct sockaddr_in6 *dst = (struct sockaddr_in6 *)
+						&(query->dst);
+				struct libnet_in6_addr ipv6_dst;
+				memcpy(&ipv6_dst, &(dst->sin6_addr), sizeof(ipv6_dst));
+				pkt = sender6_send_icmp(conf->sender6,
+						ipv6_dst, query->ttl,
+						query->traffic_class, query->flow_label,
+						id2checksum[query->flowid],
+						query->icmpid, data,
+						query->padding);
+			}
+		} else {
+			data = confirm_data_pack(query->ttl, query->flowid, 1);
+			uint16_t revsum = id2checksum[query->revflow];
+			if(query->ip.ss_family == AF_INET){
+				struct sockaddr_in *ip4 = (struct sockaddr_in *)
+						&(query->dst);
+				pkt = sender4_send_icmp_fixrev(conf->sender4,
+						ip4->sin_addr.s_addr, query->ttl,
+						query->ipid,
+						id2checksum[query->flowid],
+						revsum, data,
+						query->padding);
+			}
+			else {
+				logd(LOG_FATAL, "%s %d: fixrev for IPv6 not impl\n",
+						__FILE__, __LINE__);
+				pkt = NULL;
+			}
 		}
 	}
 
