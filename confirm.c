@@ -419,7 +419,9 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 		uint32_t tcp_sequence_number = ntohl(pkt->tcp->th_ack) - 1;
 		data = (uint16_t) (tcp_sequence_number & 0x0000FFFF);
 	} else if(pkt->ipv6->ip_nh == IPPROTO_ICMP6) {
+		
 		if(pkt->icmpv6->icmp_type == ICMP6_ECHOREPLY) {
+			probe_type = PROBE_TYPE_ICMP;
 			memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
 			icmpid = ntohs(pkt->icmpv6->id);
 			data = ntohs(pkt->icmpv6->seq);
@@ -435,9 +437,22 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 			flow_label = (flags & 0x000FFFFF);
 			icmpid = ntohs(ricmp->id);
 			data = ntohs(ricmp->seq);
+		} else if((pkt->icmpv6->icmp_type == ICMP6_DST_UNREACH) &&
+			(pkt->icmpv6->icmp_code == ICMP6_DST_UNREACH_NOPORT)){
+			// Port unreachable
+			probe_type = PROBE_TYPE_TCP;
+			struct libnet_ipv6_hdr *rip = (struct libnet_ipv6_hdr *)(pkt->payload);
+			struct libnet_tcp_hdr *rtcp = (struct libnet_tcp_hdr *)
+					(pkt->payload + LIBNET_IPV6_H);
+			memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
+			uint32_t flags = *(uint32_t *)(rip->ip_flags);
+			traffic_class = (flags & 0x0FF00000) >> 20;
+			flow_label = (flags & 0x000FFFFF);
+			data = (uint16_t) (ntohl(rtcp->th_seq) & 0x0000FFFF);
 		} else {
 			return NULL; // unsupported ICMP type
-		}
+		} 
+
 	} else {
 		return NULL; // no TCP or ICMP
 	}
