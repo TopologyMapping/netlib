@@ -401,35 +401,45 @@ static struct confirm_query * confirm_pkt_parse4(const struct packet *pkt)/*{{{*
 static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*/
 {
 	assert(pkt->ip->ip_v == 6);
-	if(pkt->ipv6->ip_nh != IPPROTO_ICMP6) return NULL;
-	if(pkt->icmpv6->icmp_type != ICMP6_ECHOREPLY &&
-			pkt->icmpv6->icmp_type != ICMP6_TIMXCEED) {
-		return NULL;
-	}
 
 	uint16_t icmpid = 0;
 	uint16_t data = 0;
 	uint8_t traffic_class = 0;
 	uint32_t flow_label = 0;
+	int probe_type = 0;
 
 	struct sockaddr_in6 dst;
 	dst.sin6_family = AF_INET6;
-	if(pkt->icmpv6->icmp_type == ICMP6_ECHOREPLY) {
+
+	if((pkt->ipv6->ip_nh == IPPROTO_TCP) && (pkt->tcp->th_flags & TH_ACK)) {
+		// TCP ACK
+		probe_type = PROBE_TYPE_TCP;
 		memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
-		icmpid = ntohs(pkt->icmpv6->id);
-		data = ntohs(pkt->icmpv6->seq);
-	} else if(pkt->icmpv6->icmp_type == ICMP6_TIMXCEED) {
-		if(pkt->icmpv6->icmp_code != ICMP_TIMXCEED_INTRANS) return NULL;
-		struct libnet_ipv6_hdr *rip;
-		struct libnet_icmpv6_hdr *ricmp;
-		rip = (struct libnet_ipv6_hdr *)(pkt->payload);
-		ricmp = (struct libnet_icmpv6_hdr *)(pkt->payload + LIBNET_IPV6_H);
-		memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
-		uint32_t flags = *(uint32_t *)(rip->ip_flags);
-		traffic_class = (flags & 0x0FF00000) >> 20;
-		flow_label = (flags & 0x000FFFFF);
-		icmpid = ntohs(ricmp->id);
-		data = ntohs(ricmp->seq);
+		// syn-ack holds syn tcp sequence number plus 1
+		uint32_t tcp_sequence_number = ntohl(pkt->tcp->th_ack) - 1;
+		data = (uint16_t) (tcp_sequence_number & 0x0000FFFF);
+	} else if(pkt->ipv6->ip_nh == IPPROTO_ICMP6) {
+		if(pkt->icmpv6->icmp_type == ICMP6_ECHOREPLY) {
+			memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
+			icmpid = ntohs(pkt->icmpv6->id);
+			data = ntohs(pkt->icmpv6->seq);
+		} else if(pkt->icmpv6->icmp_type == ICMP6_TIMXCEED) {
+			if(pkt->icmpv6->icmp_code != ICMP_TIMXCEED_INTRANS) return NULL;
+			struct libnet_ipv6_hdr *rip;
+			struct libnet_icmpv6_hdr *ricmp;
+			rip = (struct libnet_ipv6_hdr *)(pkt->payload);
+			ricmp = (struct libnet_icmpv6_hdr *)(pkt->payload + LIBNET_IPV6_H);
+			memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
+			uint32_t flags = *(uint32_t *)(rip->ip_flags);
+			traffic_class = (flags & 0x0FF00000) >> 20;
+			flow_label = (flags & 0x000FFFFF);
+			icmpid = ntohs(ricmp->id);
+			data = ntohs(ricmp->seq);
+		} else {
+			return NULL; // unsupported ICMP type
+		}
+	} else {
+		return NULL; // no TCP or ICMP
 	}
 
 	uint8_t ttl;
@@ -439,9 +449,29 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 	assert(fixrev == 0);
 
 	struct sockaddr_storage *ptr = (struct sockaddr_storage *)&dst;
-	struct confirm_query *q = confirm_query_create6_icmp(ptr, ttl,
-			traffic_class, flow_label,
-			icmpid, flowid, NULL);
+	struct confirm_query *q;
+
+	if(probe_type == PROBE_TYPE_ICMP){
+		q = confirm_query_create6_icmp(ptr, ttl, traffic_class, flow_label,
+				icmpid, flowid, NULL);
+	} else if(probe_type == PROBE_TYPE_TCP){
+		// These fields are not used in match
+		// so we initialize them with zero
+		uint16_t src_port = 0;
+		uint16_t dst_port = 0;
+		uint32_t ack_number = 0;
+		uint8_t control_flags = 0;
+		uint32_t window = 0;
+		uint16_t urgent_pointer = 0;
+		
+		q = confirm_query_create6_tcp(ptr, ttl, traffic_class, flow_label,
+			flowid, src_port, dst_port, ack_number, control_flags, window,
+			urgent_pointer, NULL);
+	} else {
+		logd(LOG_FATAL, "%s %d: unexpected probe type\n", __FILE__, __LINE__);
+		return NULL;
+	}
+
 	struct sockaddr_in6 *ip = (struct sockaddr_in6 *)&(q->ip);
 	ip->sin6_family = AF_INET6;
 	memcpy(&(ip->sin6_addr), &(pkt->ipv6->ip_src), sizeof(ip->sin6_addr));
@@ -850,8 +880,6 @@ static int query_cmp(const void *a, const void *b, void *dummy)
 	if(cmp) return cmp;
 	if(q1->ttl < q2->ttl) { return -1; }
 	if(q1->ttl > q2->ttl) { return +1; }
-	if(q1->icmpid < q2->icmpid) { return -1; }
-	if(q1->icmpid > q2->icmpid) { return +1; }
 	if(q1->flowid < q2->flowid) { return -1; }
 	if(q1->flowid > q2->flowid) { return +1; }
 	/* removed this because setting the reverse flow ID does not work
