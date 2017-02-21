@@ -425,18 +425,36 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 			memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
 			icmpid = ntohs(pkt->icmpv6->id);
 			data = ntohs(pkt->icmpv6->seq);
-		} else if(pkt->icmpv6->icmp_type == ICMP6_TIMXCEED) {
-			if(pkt->icmpv6->icmp_code != ICMP_TIMXCEED_INTRANS) return NULL;
+		} else if((pkt->icmpv6->icmp_type == ICMP6_TIMXCEED) &&
+                  (pkt->icmpv6->icmp_code == ICMP_TIMXCEED_INTRANS)) {
+
 			struct libnet_ipv6_hdr *rip;
 			struct libnet_icmpv6_hdr *ricmp;
+            struct libnet_tcp_hdr *rtcp;
 			rip = (struct libnet_ipv6_hdr *)(pkt->payload);
-			ricmp = (struct libnet_icmpv6_hdr *)(pkt->payload + LIBNET_IPV6_H);
-			memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
-			uint32_t flags = *(uint32_t *)(rip->ip_flags);
-			traffic_class = (flags & 0x0FF00000) >> 20;
-			flow_label = (flags & 0x000FFFFF);
-			icmpid = ntohs(ricmp->id);
-			data = ntohs(ricmp->seq);
+
+            if(rip->ip_nh == IPPROTO_ICMP6) {
+                probe_type = PROBE_TYPE_ICMP;
+                ricmp = (struct libnet_icmpv6_hdr *)
+                        (pkt->payload + LIBNET_IPV6_H);
+    			memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
+    			uint32_t flags = *(uint32_t *)(rip->ip_flags);
+    			traffic_class = (flags & 0x0FF00000) >> 20;
+    			flow_label = (flags & 0x000FFFFF);
+    			icmpid = ntohs(ricmp->id);
+    			data = ntohs(ricmp->seq);
+            } else if(rip->ip_nh == IPPROTO_TCP) {
+                probe_type = PROBE_TYPE_TCP;
+                rtcp = (struct libnet_tcp_hdr *)(pkt->payload + LIBNET_IPV6_H);
+    			memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
+    			uint32_t flags = *(uint32_t *)(rip->ip_flags);
+    			traffic_class = (flags & 0x0FF00000) >> 20;
+    			flow_label = (flags & 0x000FFFFF);
+    			data = (uint16_t) (ntohl(rtcp->th_seq) & 0x0000FFFF);
+            } else {
+                return NULL; // no ICMP or TCP encapsulated
+            }
+
 		} else if((pkt->icmpv6->icmp_type == ICMP6_DST_UNREACH) &&
 			(pkt->icmpv6->icmp_code == ICMP6_DST_UNREACH_NOPORT)){
 			// Port unreachable
