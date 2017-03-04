@@ -4,10 +4,10 @@
 
 #include "demux.h"
 #include "confirm.h"
-#include "log.h"
 #include "sender4.h"
 #include "packet.h"
 
+#include "log/log.h"
 
 int check_permissions(void) { /* {{{ */
 	if(getuid() != 0) {

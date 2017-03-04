@@ -4,7 +4,7 @@
 #include <limits.h>
 
 #include "sender6.h"
-#include "log.h"
+#include "log/log.h"
 
 #define SENDER_AUTO_CHECKSUM 0
 

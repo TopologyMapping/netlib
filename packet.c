@@ -4,7 +4,7 @@
 #include <assert.h>
 
 #include "packet.h"
-#include "log.h"
+#include "log/log.h"
 
 
 static void packet4_fill(struct packet *pkt, size_t ipoffset)/*{{{*/
