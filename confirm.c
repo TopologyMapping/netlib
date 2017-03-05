@@ -9,16 +9,16 @@
 
 #include <libnet.h>
 #include <limits.h>
-
-#include "dlist.h"
-#include "pavl.h"
-#include "log.h"
 #include "demux.h"
 #include "sender4.h"
 #include "sender6.h"
-#include "timespec.h"
 #include "packet.h"
 #include "confirm.h"
+
+#include "dstructs/dlist.h"
+#include "dstructs/pavl.h"
+#include "dstructs/timespec.h"
+#include "log/log.h"
 
 #define PROBE_TYPE_ICMP 1
 #define PROBE_TYPE_TCP 2

@@ -3,7 +3,7 @@
 #include <assert.h>
 
 #include "sender4.h"
-#include "log.h"
+#include "log/log.h"
 
 #define SENDER_TOS 0
 #define SENDER_FRAG 0

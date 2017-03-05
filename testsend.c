@@ -2,9 +2,11 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <libnet.h>
+
 #include "sender4.h"
 #include "sender6.h"
-#include "log.h"
+
+#include "log/log.h"
 
 
 int check_permissions(void) { /* {{{ */

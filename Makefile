@@ -3,11 +3,11 @@ all: compile testlib.c
 	gcc -Wall -g testlib.c *.o -lpcap -lnet -lpthread -lrt -o testlib
 
 compile: *.c
-	gcc -g -Wall -c timespec.c
-	gcc -g -Wall -c dlist.c
-	gcc -g -Wall -c pavl.c
-	gcc -g -Wall -c log.c
-	gcc -g -Wall -c cyc.c
+	gcc -g -Wall -c dstructs/timespec.c
+	gcc -g -Wall -c dstructs/dlist.c
+	gcc -g -Wall -c dstructs/pavl.c
+	gcc -g -Wall -c log/log.c
+	gcc -g -Wall -c log/cyc.c
 	gcc -g -Wall -c packet.c
 	gcc -g -Wall -c sniffer.c
 	gcc -g -Wall -c demux.c

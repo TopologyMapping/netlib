@@ -10,8 +10,9 @@
 #include <libnet.h>
 
 #include "sniffer.h"
-#include "log.h"
 #include "demux.h"
+
+#include "log/log.h"
 
 static struct demux *demux = NULL;
 

@@ -8,7 +8,7 @@
 #include <pcap.h>
 #include <arpa/inet.h>
 
-#include "log.h"
+#include "log/log.h"
 
 /*****************************************************************************
  * static declarations
