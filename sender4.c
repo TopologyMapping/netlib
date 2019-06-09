@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <libnet.h>
 #include <assert.h>
+#include <arpa/inet.h>
 
 #include "sender4.h"
 #include "log/log.h"
@@ -40,6 +41,16 @@ struct sender4 * sender4_create(const char *device) /* {{{ */
 	sender->ln = libnet_init(LIBNET_RAW4, dev, errbuf);
 	if(sender->ln == NULL) goto out_libnet;
 	free(dev);
+
+	/* Temporary fix for Debian stretch's libnet1-1.1.6, which does not
+	 * call SO_BINDTODEVICE on v4 sockets.
+	 * https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=930235 */
+#if (__linux__)
+	if(setsockopt(sender->ln->fd, SOL_SOCKET, SO_BINDTODEVICE,
+			device, strlen(device)+1) < 0) {
+		logd(LOG_DEBUG, "setsockopt SO_BINDTODEVICE");
+	}
+#endif
 
 	sender->ip = libnet_get_ipaddr4(sender->ln);
 	sender->icmptag = 0;
