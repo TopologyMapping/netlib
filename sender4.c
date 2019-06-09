@@ -38,7 +38,7 @@ struct sender4 * sender4_create(const char *device) /* {{{ */
 	if(!sender) logea(__FILE__, __LINE__, NULL);
 
 	sender->ln = libnet_init(LIBNET_RAW4, dev, errbuf);
-	if(!sender->ln) goto out_libnet;
+	if(sender->ln == NULL) goto out_libnet;
 	free(dev);
 
 	sender->ip = libnet_get_ipaddr4(sender->ln);
@@ -46,6 +46,10 @@ struct sender4 * sender4_create(const char *device) /* {{{ */
 	sender->iptag = 0;
 
 	logd(LOG_INFO, "%s dev=%s ok\n", __func__, device);
+
+	char addrstr[INET_ADDRSTRLEN];
+	inet_ntop(AF_INET, &(sender->ip), addrstr, INET_ADDRSTRLEN);
+	logd(LOG_INFO, "%s ip address=%s\n", __func__, addrstr);
 	return sender;
 
 	out_libnet:
@@ -64,10 +68,14 @@ void sender4_destroy(struct sender4 *sender) /* {{{ */
 } /* }}} */
 
 struct packet * sender4_send_icmp(struct sender4 *s, /* {{{ */
-		uint32_t dst, uint8_t ttl, uint16_t ipid,
+		uint32_t src, uint32_t dst, uint8_t ttl, uint16_t ipid,
 		uint16_t icmpsum, uint16_t icmpid, uint16_t icmpseq,
 		size_t padding)
 {
+	if(src == INADDR_ANY) {
+		src = s->ip;
+	}
+
 	padding += (padding % 2);
 	size_t cnt = padding/sizeof(uint16_t) + 1;
 	uint16_t *pload = malloc(cnt * sizeof(uint16_t));
@@ -85,7 +93,7 @@ struct packet * sender4_send_icmp(struct sender4 *s, /* {{{ */
 	size_t sz = LIBNET_IPV4_H+LIBNET_ICMPV4_ECHO_H + cnt*sizeof(uint16_t);
 	s->iptag = libnet_build_ipv4(sz, SENDER_TOS, ipid, SENDER_FRAG,
 			ttl, IPPROTO_ICMP, SENDER_AUTO_CHECKSUM,
-			s->ip, dst, NULL, 0, s->ln, s->iptag);
+			src, dst, NULL, 0, s->ln, s->iptag);
 	if(s->iptag == -1) goto out;
 
 	if(libnet_write(s->ln) < 0) goto out;
@@ -104,10 +112,14 @@ struct packet * sender4_send_icmp(struct sender4 *s, /* {{{ */
 } /* }}} */
 
 struct packet * sender4_send_icmp_fixrev(struct sender4 *s, /* {{{ */
-		uint32_t dst, uint8_t ttl, uint16_t ipid,
+		uint32_t src, uint32_t dst, uint8_t ttl, uint16_t ipid,
 		uint16_t icmpsum, uint16_t rev_icmpsum, uint16_t icmpseq,
 		size_t padding)
 {
+	if(src == INADDR_ANY) {
+		src = s->ip;
+	}
+
 	struct libnet_icmpv4_hdr outer;
 	outer.icmp_type = ICMP_TIMXCEED;
 	outer.icmp_code = ICMP_TIMXCEED_INTRANS;
@@ -124,7 +136,7 @@ struct packet * sender4_send_icmp_fixrev(struct sender4 *s, /* {{{ */
 	iip.ip_ttl = 1;
 	iip.ip_p = IPPROTO_ICMP;
 	iip.ip_sum = 0;
-	iip.ip_src.s_addr = s->ip;
+	iip.ip_src.s_addr = src;
 	iip.ip_dst.s_addr = dst;
 	int chksum = libnet_in_cksum((uint16_t *)&iip, LIBNET_IPV4_H);
 	iip.ip_sum = LIBNET_CKSUM_CARRY(chksum);
@@ -150,7 +162,7 @@ struct packet * sender4_send_icmp_fixrev(struct sender4 *s, /* {{{ */
 
 	uint16_t icmpid = ntohs(iicmp.icmp_id);
 
-	return sender4_send_icmp(s, dst, ttl, ipid,
+	return sender4_send_icmp(s, src, dst, ttl, ipid,
 			icmpsum, icmpid, icmpseq, padding);
 } /* }}} */
 

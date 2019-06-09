@@ -128,7 +128,9 @@ static int sniffer_openpcap_bpf(struct sniffer *s, pcap_if_t *iface) /* {{{ */
 	*(strrchr(hosts, ')')+1) = '\0'; // remove trailing " or "
 
 	char bpfstr[1024];
-	sprintf(bpfstr, "(ip or ip6) and (%s)", hosts);
+
+	/* sprintf(bpfstr, "(ip or ip6) and (%s) and not tcp", hosts); */
+	sprintf(bpfstr, "(ip or ip6) and not tcp", hosts);
 	logd(LOG_INFO, "configuring bpf filter: %s\n", bpfstr);
 
 	if(pcap_compile(s->pcap, &bpf, bpfstr, 1, PCAP_NETMASK_UNKNOWN))

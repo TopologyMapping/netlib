@@ -15,6 +15,7 @@ struct confirm_query {/*{{{*/
 	
 	/* query fields ******************/
 	/* must be filled by the caller: */
+	struct sockaddr_storage src; // check src.sa_family
 	struct sockaddr_storage dst; // check dst.sa_family
 	uint8_t ttl;
 
@@ -84,6 +85,7 @@ void confirm_destroy(struct confirm *confirm);
 void confirm_submit(struct confirm *confirm, struct confirm_query *query);
 
 struct confirm_query * confirm_query_create4(
+		const struct sockaddr_storage *src,
 		const struct sockaddr_storage *dst,
 		uint8_t ttl,
 		uint16_t ipid,
@@ -92,6 +94,7 @@ struct confirm_query * confirm_query_create4(
 		confirm_query_cb cb);
 
 struct confirm_query * confirm_query_create6_icmp(
+		const struct sockaddr_storage *src,
 		const struct sockaddr_storage *dst,
 		uint8_t ttl,
 		uint8_t traffic_class, uint32_t flow_label,

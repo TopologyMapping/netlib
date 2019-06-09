@@ -38,7 +38,7 @@ struct sender6 * sender6_create(const char *device) /* {{{ */
 	if(!sender) logea(__FILE__, __LINE__, NULL);
 
 	sender->ln = libnet_init(LIBNET_RAW6, dev, errbuf);
-	if(!sender->ln) goto out_libnet;
+	if(sender->ln == NULL) goto out_libnet;
 	free(dev);
 	sender->ip = libnet_get_ipaddr6(sender->ln);
 	sender->l4tag = 0;
@@ -65,11 +65,19 @@ void sender6_destroy(struct sender6 *sender) /* {{{ */
 } /* }}} */
 
 struct packet * sender6_send_icmp(struct sender6 *s, /* {{{ */
-		struct libnet_in6_addr dst, uint8_t ttl,
+		struct libnet_in6_addr src,
+		struct libnet_in6_addr dst,
+		uint8_t ttl,
 		uint8_t traffic_class, uint32_t flow_label,
 		uint16_t icmpsum, uint16_t icmpid, uint16_t icmpseq,
 		size_t padding)
 {
+	assert(sizeof(src) == sizeof(in6addr_any));
+	struct in6_addr *inaddr = (struct in6_addr *)&src;
+	if(memcmp(&src, &in6addr_any, sizeof(src)) == 0) {
+		src = s->ip;
+	}
+
 	padding += (padding % 2);
 	size_t cnt = padding/sizeof(uint16_t) + 1;
 	uint16_t *pload = malloc(cnt * sizeof(uint16_t));

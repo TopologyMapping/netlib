@@ -216,7 +216,6 @@ struct confirm * confirm_create(const char *device) /* {{{ */
 	loge(LOG_DEBUG, __FILE__, __LINE__);
 	pavl_destroy(confirm->queries, NULL);
 	pthread_mutex_destroy(&confirm->evlist_mut);
-	pavl_destroy(confirm->queries, NULL);
 	out_events:
 	loge(LOG_DEBUG, __FILE__, __LINE__);
 	pavl_destroy(confirm->events, NULL);
@@ -359,9 +358,12 @@ static struct confirm_query * confirm_pkt_parse4(const struct packet *pkt)/*{{{*
 	uint16_t revsum = 0;
 	uint16_t data = 0;
 
+	struct sockaddr_in src;
 	struct sockaddr_in dst;
+	src.sin_family = AF_INET;
 	dst.sin_family = AF_INET;
 	if(pkt->icmp->icmp_type == ICMP_ECHOREPLY) {
+		src.sin_addr.s_addr = pkt->ip->ip_dst.s_addr;
 		dst.sin_addr.s_addr = pkt->ip->ip_src.s_addr;
 		icmpid = ntohs(pkt->icmp->icmp_id);
 		data = ntohs(pkt->icmp->icmp_seq);
@@ -371,6 +373,7 @@ static struct confirm_query * confirm_pkt_parse4(const struct packet *pkt)/*{{{*
 		struct libnet_icmpv4_hdr *ricmp;
 		rip = (struct libnet_ipv4_hdr *)(pkt->payload);
 		ricmp = (struct libnet_icmpv4_hdr *)(pkt->payload + rip->ip_hl*4);
+		src.sin_addr.s_addr = rip->ip_src.s_addr;
 		dst.sin_addr.s_addr = rip->ip_dst.s_addr;
 		ipid = ntohs(rip->ip_id);
 		icmpid = ntohs(ricmp->icmp_id);
@@ -388,9 +391,10 @@ static struct confirm_query * confirm_pkt_parse4(const struct packet *pkt)/*{{{*
 		icmpid = 0;
 	}
 
-	struct sockaddr_storage *ptr = (struct sockaddr_storage *)&dst;
-	struct confirm_query *q = confirm_query_create4(ptr, ttl,
-			ipid,
+	struct sockaddr_storage *srcptr = (struct sockaddr_storage *)&src;
+	struct sockaddr_storage *dstptr = (struct sockaddr_storage *)&dst;
+	struct confirm_query *q = confirm_query_create4(srcptr, dstptr,
+			ttl, ipid,
 			icmpid, flowid, revflow, NULL);
 	struct sockaddr_in *saddr = (struct sockaddr_in *)&(q->ip);
 	saddr->sin_family = AF_INET;
@@ -408,26 +412,28 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 	uint32_t flow_label = 0;
 	int probe_type = 0;
 
+	struct sockaddr_in6 src;
 	struct sockaddr_in6 dst;
+	src.sin6_family = AF_INET6;
 	dst.sin6_family = AF_INET6;
 
 	if((pkt->ipv6->ip_nh == IPPROTO_TCP) && (pkt->tcp->th_flags & TH_ACK)) {
 		// TCP ACK
 		probe_type = PROBE_TYPE_TCP;
+		memcpy(&src.sin6_addr, &pkt->ipv6->ip_dst, sizeof(src.sin6_addr));
 		memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
 		// syn-ack holds syn tcp sequence number plus 1
 		uint32_t tcp_sequence_number = ntohl(pkt->tcp->th_ack) - 1;
 		data = (uint16_t) (tcp_sequence_number & 0x0000FFFF);
 	} else if(pkt->ipv6->ip_nh == IPPROTO_ICMP6) {
-		
 		if(pkt->icmpv6->icmp_type == ICMP6_ECHOREPLY) {
 			probe_type = PROBE_TYPE_ICMP;
+			memcpy(&src.sin6_addr, &pkt->ipv6->ip_dst, sizeof(src.sin6_addr));
 			memcpy(&dst.sin6_addr, &pkt->ipv6->ip_src, sizeof(dst.sin6_addr));
 			icmpid = ntohs(pkt->icmpv6->id);
 			data = ntohs(pkt->icmpv6->seq);
 		} else if((pkt->icmpv6->icmp_type == ICMP6_TIMXCEED) &&
-                  (pkt->icmpv6->icmp_code == ICMP_TIMXCEED_INTRANS)) {
-
+                (pkt->icmpv6->icmp_code == ICMP_TIMXCEED_INTRANS)) {
 			struct libnet_ipv6_hdr *rip;
 			struct libnet_icmpv6_hdr *ricmp;
             struct libnet_tcp_hdr *rtcp;
@@ -437,6 +443,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
                 probe_type = PROBE_TYPE_ICMP;
                 ricmp = (struct libnet_icmpv6_hdr *)
                         (pkt->payload + LIBNET_IPV6_H);
+				memcpy(&src.sin6_addr, &rip->ip_src, sizeof(src.sin6_addr));
     			memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
     			uint32_t flags = *(uint32_t *)(rip->ip_flags);
     			traffic_class = (flags & 0x0FF00000) >> 20;
@@ -446,6 +453,7 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
             } else if(rip->ip_nh == IPPROTO_TCP) {
                 probe_type = PROBE_TYPE_TCP;
                 rtcp = (struct libnet_tcp_hdr *)(pkt->payload + LIBNET_IPV6_H);
+				memcpy(&src.sin6_addr, &rip->ip_src, sizeof(src.sin6_addr));
     			memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
     			uint32_t flags = *(uint32_t *)(rip->ip_flags);
     			traffic_class = (flags & 0x0FF00000) >> 20;
@@ -454,22 +462,23 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
             } else {
                 return NULL; // no ICMP or TCP encapsulated
             }
-
 		} else if((pkt->icmpv6->icmp_type == ICMP6_DST_UNREACH) &&
-			(pkt->icmpv6->icmp_code == ICMP6_DST_UNREACH_NOPORT)){
+				(pkt->icmpv6->icmp_code == ICMP6_DST_UNREACH_NOPORT)){
 			// Port unreachable
+			struct libnet_ipv6_hdr *rip;
+			struct libnet_tcp_hdr *rtcp;
 			probe_type = PROBE_TYPE_TCP;
-			struct libnet_ipv6_hdr *rip = (struct libnet_ipv6_hdr *)(pkt->payload);
-			struct libnet_tcp_hdr *rtcp = (struct libnet_tcp_hdr *)
-					(pkt->payload + LIBNET_IPV6_H);
+			rip = (struct libnet_ipv6_hdr *)(pkt->payload);
+			rtcp = (struct libnet_tcp_hdr *)(pkt->payload + LIBNET_IPV6_H);
+			memcpy(&src.sin6_addr, &rip->ip_src, sizeof(src.sin6_addr));
 			memcpy(&dst.sin6_addr, &rip->ip_dst, sizeof(dst.sin6_addr));
 			uint32_t flags = *(uint32_t *)(rip->ip_flags);
 			traffic_class = (flags & 0x0FF00000) >> 20;
 			flow_label = (flags & 0x000FFFFF);
-			data = (uint16_t) (ntohl(rtcp->th_seq) & 0x0000FFFF);
+			data = (uint16_t)(ntohl(rtcp->th_seq) & 0x0000FFFF);
 		} else {
 			return NULL; // unsupported ICMP type
-		} 
+		}
 
 	} else {
 		return NULL; // no TCP or ICMP
@@ -481,23 +490,22 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 	confirm_data_unpack(data, &ttl, &flowid, &fixrev);
 	assert(fixrev == 0);
 
-	struct sockaddr_storage *ptr = (struct sockaddr_storage *)&dst;
-	struct confirm_query *q;
-
-	if(probe_type == PROBE_TYPE_ICMP){
-		q = confirm_query_create6_icmp(ptr, ttl, traffic_class, flow_label,
+	struct sockaddr_storage *srcptr = (struct sockaddr_storage *)&src;
+	struct sockaddr_storage *dstptr = (struct sockaddr_storage *)&dst;
+	if(probe_type == PROBE_TYPE_ICMP) {
+		struct confirm_query *q = confirm_query_create6(srcptr, dstptr,
+				ttl, traffic_class, flow_label,
 				icmpid, flowid, NULL);
-	} else if(probe_type == PROBE_TYPE_TCP){
-		// These fields are not used in match
-		// so we initialize them with zero
+	} else if(probe_type == PROBE_TYPE_TCP) {
+		// These fields are not used in match, initialize with zero:
 		uint16_t src_port = 0;
 		uint16_t dst_port = 0;
 		uint32_t ack_number = 0;
 		uint8_t control_flags = 0;
 		uint32_t window = 0;
 		uint16_t urgent_pointer = 0;
-		
-		q = confirm_query_create6_tcp(ptr, ttl, traffic_class, flow_label,
+		q = confirm_query_create6_tcp(srcptr, dstptr, ttl,
+			traffic_class, flow_label,
 			flowid, src_port, dst_port, ack_number, control_flags, window,
 			urgent_pointer, NULL);
 	} else {
@@ -677,26 +685,34 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 			query->tcp.control_flags, query->tcp.window, query->tcp.urgent_pointer);
 
 	} else if (query->probe_type == PROBE_TYPE_ICMP) {
-		
 		if(query->icmpid) { /* if icmpid == 0 then we fix the reverse flowid */
 			data = confirm_data_pack(query->ttl, query->flowid, 0);
 			if(query->dst.ss_family == AF_INET) {
-				struct sockaddr_in *ip4 = (struct sockaddr_in *)
-						&(query->dst);
+				struct sockaddr_in *src_sa;
+				struct sockaddr_in *dst_sa;
+				src_sa = (struct sockaddr_in *)(&(query->src));
+				dst_sa = (struct sockaddr_in *)(&(query->dst));
 				pkt = sender4_send_icmp(conf->sender4,
-						ip4->sin_addr.s_addr, query->ttl,
+						src_sa->sin_addr.s_addr,
+						dst_sa->sin_addr.s_addr,
+						query->ttl,
 						query->ipid,
 						id2checksum[query->flowid],
 						query->icmpid, data,
 						query->padding);
-			}
-			else {
-				struct sockaddr_in6 *dst = (struct sockaddr_in6 *)
-						&(query->dst);
+			} else {
+				struct sockaddr_in6 *sin6;
+				sin6 = (struct sockaddr_in6 *)(&(query->src));
+				struct sockaddr_in6 *din6;
+				din6  = (struct sockaddr_in6 *)(&(query->dst));
+				struct libnet_in6_addr ipv6_src;
 				struct libnet_in6_addr ipv6_dst;
-				memcpy(&ipv6_dst, &(dst->sin6_addr), sizeof(ipv6_dst));
+				memcpy(&ipv6_src, &(sin6->sin6_addr), sizeof(ipv6_src));
+				memcpy(&ipv6_dst, &(din6->sin6_addr), sizeof(ipv6_dst));
 				pkt = sender6_send_icmp(conf->sender6,
-						ipv6_dst, query->ttl,
+						ipv6_src,
+						ipv6_src,
+						query->ttl,
 						query->traffic_class, query->flow_label,
 						id2checksum[query->flowid],
 						query->icmpid, data,
@@ -706,10 +722,14 @@ static void event_run_sendpacket(struct confirm *conf, struct event *ev)
 			data = confirm_data_pack(query->ttl, query->flowid, 1);
 			uint16_t revsum = id2checksum[query->revflow];
 			if(query->ip.ss_family == AF_INET){
-				struct sockaddr_in *ip4 = (struct sockaddr_in *)
-						&(query->dst);
+				struct sockaddr_in *src_sa;
+				struct sockaddr_in *dst_sa;
+				src_sa = (struct sockaddr_in *)(&(query->src));
+				dst_sa = (struct sockaddr_in *)(&(query->dst));
 				pkt = sender4_send_icmp_fixrev(conf->sender4,
-						ip4->sin_addr.s_addr, query->ttl,
+						src_sa->sin_addr.s_addr,
+						dst_sa->sin_addr.s_addr,
+						query->ttl,
 						query->ipid,
 						id2checksum[query->flowid],
 						revsum, data,
@@ -798,17 +818,20 @@ static void event_run_answer(struct confirm *conf, struct event *ev)
  * query functions {{{
  ****************************************************************************/
 struct confirm_query *confirm_query_create_defaults(
-		const struct sockaddr_storage *dst, uint8_t ttl, uint8_t flowid,
+		const struct sockaddr_storage *src,
+		const struct sockaddr_storage *dst,
+		uint8_t ttl, uint8_t flowid,
 		confirm_query_cb cb)
 {
 	struct confirm_query *query;
 	query = malloc(sizeof(*query));
 	if(!query) logea(__FILE__, __LINE__, NULL);
 
+	memcpy(&(query->src), src, sizeof(query->src));
 	memcpy(&(query->dst), dst, sizeof(query->dst));
 	memset(&(query->ip), UINT8_MAX, sizeof(query->ip));
 	query->ip.ss_family = dst->ss_family;
-	
+
 	if(flowid > CONFIRM_MAX_FLOWID) {
 		logd(LOG_WARN, "%s,%d: flowid > CONFIRM_MAX_FLOWID (%d)!\n", __FILE__,
 			__LINE__, CONFIRM_MAX_FLOWID);
@@ -840,8 +863,10 @@ struct confirm_query *confirm_query_create_defaults(
 }
 
 struct confirm_query *
-confirm_query_create4(const struct sockaddr_storage *dst, uint8_t ttl,
-		uint16_t ipid,
+confirm_query_create4(
+		const struct sockaddr_storage *src,
+		const struct sockaddr_storage *dst,
+		uint8_t ttl, uint16_t ipid,
 		uint16_t icmpid, uint8_t flowid, uint8_t revflow,
 		confirm_query_cb cb)
 {
@@ -850,7 +875,8 @@ confirm_query_create4(const struct sockaddr_storage *dst, uint8_t ttl,
 			__LINE__, CONFIRM_MAX_FLOWID);
 	}
 
-	struct confirm_query *query = confirm_query_create_defaults(dst, ttl, flowid, cb);
+	struct confirm_query *query = confirm_query_create_defaults(
+			src, dst, ttl, flowid, cb);
 	query->ipid = ipid;
 	query->icmpid = icmpid;
 	query->revflow = (icmpid) ? 0 : revflow & CONFIRM_MAX_FLOWID;
@@ -860,11 +886,16 @@ confirm_query_create4(const struct sockaddr_storage *dst, uint8_t ttl,
 }
 
 struct confirm_query *
-confirm_query_create6_icmp(const struct sockaddr_storage *dst, uint8_t ttl,
-		uint8_t traffic_class, uint32_t flow_label, uint16_t icmpid,
-		uint8_t flowid, confirm_query_cb cb)
+confirm_query_create6_icmp(
+		const struct sockaddr_storage *src,
+		const struct sockaddr_storage *dst,
+		uint8_t ttl,
+		uint8_t traffic_class, uint32_t flow_label,
+		uint16_t icmpid, uint8_t flowid,
+		confirm_query_cb cb)
 {
-	struct confirm_query *query = confirm_query_create_defaults(dst, ttl, flowid, cb);
+	struct confirm_query *query;
+	query = confirm_query_create_defaults(src, dst, ttl, flowid, cb);
 	query->traffic_class = traffic_class;
 	query->flow_label = flow_label;
 	query->icmpid = icmpid;
@@ -873,13 +904,16 @@ confirm_query_create6_icmp(const struct sockaddr_storage *dst, uint8_t ttl,
 }
 
 struct confirm_query *
-confirm_query_create6_tcp(const struct sockaddr_storage *dst, uint8_t ttl,
-		uint8_t traffic_class, uint32_t flow_label, uint8_t flowid,
+confirm_query_create6_tcp(
+		const struct sockaddr_storage *src,
+		const struct sockaddr_storage *dst,
+		uint8_t ttl, uint8_t traffic_class, uint32_t flow_label, uint8_t flowid,
 		uint16_t src_port, uint16_t dst_port, uint32_t ack_number,
 		uint8_t control_flags, uint16_t window, uint16_t urgent_pointer,
 		confirm_query_cb cb)
 {
-	struct confirm_query *query = confirm_query_create_defaults(dst, ttl, flowid, cb);
+	struct confirm_query *query;
+	query = confirm_query_create_defaults(src, dst, ttl, flowid, cb);
 	query->traffic_class = traffic_class;
 	query->flow_label = flow_label;
 	query->tcp.src_port = src_port;
@@ -887,7 +921,7 @@ confirm_query_create6_tcp(const struct sockaddr_storage *dst, uint8_t ttl,
 	query->tcp.ack_number = ack_number;
 	query->tcp.control_flags = control_flags;
 	query->tcp.window = window;
-	query->tcp.urgent_pointer = urgent_pointer;	
+	query->tcp.urgent_pointer = urgent_pointer;
 	query->probe_type = PROBE_TYPE_TCP;
 	return query;
 }
