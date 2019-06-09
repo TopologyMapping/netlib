@@ -490,10 +490,11 @@ static struct confirm_query * confirm_pkt_parse6(const struct packet *pkt)/*{{{*
 	confirm_data_unpack(data, &ttl, &flowid, &fixrev);
 	assert(fixrev == 0);
 
+	struct confirm_query *q;
 	struct sockaddr_storage *srcptr = (struct sockaddr_storage *)&src;
 	struct sockaddr_storage *dstptr = (struct sockaddr_storage *)&dst;
 	if(probe_type == PROBE_TYPE_ICMP) {
-		struct confirm_query *q = confirm_query_create6(srcptr, dstptr,
+		q = confirm_query_create6_icmp(srcptr, dstptr,
 				ttl, traffic_class, flow_label,
 				icmpid, flowid, NULL);
 	} else if(probe_type == PROBE_TYPE_TCP) {

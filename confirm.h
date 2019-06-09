@@ -12,7 +12,7 @@
 
 struct confirm_query {/*{{{*/
 	int probe_type;
-	
+
 	/* query fields ******************/
 	/* must be filled by the caller: */
 	struct sockaddr_storage src; // check src.sa_family
@@ -102,7 +102,9 @@ struct confirm_query * confirm_query_create6_icmp(
 		confirm_query_cb cb);
 
 struct confirm_query * confirm_query_create6_tcp(
-		const struct sockaddr_storage *dst, uint8_t ttl,
+		const struct sockaddr_storage *src,
+		const struct sockaddr_storage *dst,
+		uint8_t ttl,
 		uint8_t traffic_class, uint32_t flow_label, uint8_t flowid,
 		uint16_t src_port, uint16_t dst_port, uint32_t ack_number,
 		uint8_t control_flags, uint16_t window, uint16_t urgent_pointer,
